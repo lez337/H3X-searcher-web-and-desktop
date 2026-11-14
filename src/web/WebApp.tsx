@@ -29,7 +29,18 @@ export function WebWorkspace(){
   async function importDesktop(){try{
     const state=await window.h3xDesktop!.legacyWorkspace();if(!state){setMessage('No previous Windows workspace was found. You can restore a workspace.json backup instead.');return;}await replace(validateState(state));
   }catch(error){setMessage((error as Error).message)}}
-  return <section className="panel web-workspace"><h2>Account workspace</h2><InstallApp/><div className="button-row"><button onClick={backup}><Download size={15}/>Download backup</button><button onClick={restore}><Upload size={15}/>Restore backup</button><button onClick={importBrowser}>Import previous browser workspace</button>{window.h3xDesktop&&<button onClick={importDesktop}>Import previous Windows workspace</button>}</div>{message&&<p role="status">{message}</p>}</section>;
+  return <div className="web-workspace">
+    <section className="panel"><header><h2>Workspace backups</h2><p>Save a copy of your investigations or restore a previous workspace.</p></header>
+      <div className="workspace-action"><div><h3>Download a backup</h3><p>Keep a copy of your current workspace on this device.</p></div><button className="primary" onClick={backup}><Download size={15}/>Download backup</button></div>
+      <div className="workspace-action"><div><h3>Restore a backup</h3><p>Choose a backup file. Restoring replaces this account’s current workspace.</p></div><button onClick={restore}><Upload size={15}/>Restore backup</button></div>
+    </section>
+    <section className="panel"><h2>Import a previous workspace</h2>
+      <div className="workspace-action"><div><h3>From this browser</h3><p>Move a previous browser workspace into this account. This replaces the current workspace.</p></div><button onClick={importBrowser}>Import browser workspace</button></div>
+      {window.h3xDesktop&&<div className="workspace-action"><div><h3>From Windows</h3><p>Move a previous Windows workspace into this account. This replaces the current workspace.</p></div><button onClick={importDesktop}>Import Windows workspace</button></div>}
+    </section>
+    {message&&<p className="workspace-message" role="status">{message}</p>}
+    <InstallApp/>
+  </div>;
 }
 function WorkspaceApp(){
   useEffect(()=>{

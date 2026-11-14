@@ -5,8 +5,8 @@ input[type=checkbox],input[type=radio]{padding:0;flex-shrink:0}
 :where(button):hover:not(:disabled){background:#252525;border-color:#606060}
 :where(button):focus-visible{outline:2px solid #c5c5c5;outline-offset:3px}
 .sidebar-bottom{margin-bottom:68px}
-.web-account-dock{position:fixed;left:13px;bottom:16px;z-index:40}
-.web-account-trigger{width:222px;padding:11px 12px;text-align:left;justify-content:flex-start;background:linear-gradient(135deg,#1b1b1b,#101010);border-color:#363636;box-shadow:0 8px 24px #0004}
+.web-account-dock{flex-shrink:0;min-width:0;padding-top:12px;z-index:40}
+.web-account-trigger{width:100%;padding:11px 12px;text-align:left;justify-content:flex-start;background:linear-gradient(135deg,#1b1b1b,#101010);border-color:#363636;box-shadow:0 8px 24px #0004}
 .web-account-avatar{display:grid;place-items:center;width:34px;height:34px;flex-shrink:0;background:#222;border:1px solid #393939;border-radius:9px;color:#ccc}
 .web-account-label{display:grid;gap:4px;min-width:0;flex:1}.web-account-label strong{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.web-account-label .web-sync{text-align:left;font-size:10px;color:#999}.web-account-trigger>svg{color:#777}
 .web-account-label .web-sync.error,.web-account-dialog .web-account-status.error{color:#ffaaaa}
@@ -35,7 +35,9 @@ input[type=checkbox],input[type=radio]{padding:0;flex-shrink:0}
   .sidebar nav button:hover{transform:none}
   .sidebar nav button.active:after{right:7px}
   .sidebar-bottom{display:none}
-  .web-account-dock{inset:auto 0 0;height:calc(86px + env(safe-area-inset-bottom,0px));padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;background:#0c0c0c;border-top:1px solid #303030}
+  .sidebar-navigation{display:contents}
+  .notification-center{bottom:calc(102px + env(safe-area-inset-bottom,0px))}
+  .web-account-dock{position:fixed;inset:auto 0 0;height:calc(86px + env(safe-area-inset-bottom,0px));padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;background:#0c0c0c;border-top:1px solid #303030}
   .web-account-trigger{width:min(100%,260px)}
   .web-account-error{bottom:calc(96px + env(safe-area-inset-bottom,0px));max-height:40dvh;overflow:auto}
   .results-layout{grid-template-columns:minmax(0,1fr);gap:22px}
@@ -74,3 +76,6 @@ input[type=checkbox],input[type=radio]{padding:0;flex-shrink:0}
   .web-login input,.web-account-code>input,.web-key-input input{font-size:16px}
 }
 .account-settings{display:grid;gap:16px}.account-settings .web-account-code{border:0;padding:0;margin:0;max-width:480px}.account-settings .web-account-code>input{max-width:320px;display:block}.account-settings .web-account-actions{border:0;padding:0;margin:0;gap:8px}.account-settings .web-account-code .web-account-actions{margin-top:14px}.account-settings .web-login-error{color:#ffaaaa;font-size:12px}.web-account-trigger{padding:8px 10px}.web-account-trigger .web-account-avatar{width:30px;height:30px}.account-settings .web-account-dialog .web-account-code{max-width:none}
+.web-workspace{display:grid;gap:16px}.web-workspace .panel{gap:0}.web-workspace .panel>header,.web-workspace .panel>h2{margin-bottom:20px}.web-workspace p{margin:6px 0 0}.workspace-action{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 0;border-top:1px solid #292929}.workspace-action:last-child{padding-bottom:0}.workspace-action>div{min-width:0;max-width:520px}.workspace-action>:is(button,a){flex-shrink:0;min-width:180px}.web-workspace .workspace-message{margin:0;padding:12px 16px;border:1px solid #3c3c3c;border-radius:8px;background:#161616}
+@media(max-width:1100px){.workspace-action{flex-direction:column;align-items:stretch;gap:14px}.workspace-action>:is(button,a){align-self:flex-start}}
+@media(max-width:600px){.workspace-action>:is(button,a){width:100%;min-width:0}.workspace-action{gap:12px}}

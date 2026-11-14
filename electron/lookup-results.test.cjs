@@ -53,3 +53,32 @@ test('lookup rows preserve text source labels and separate log references',async
   assert.equal(results[0].items[0].logId,undefined);
  }finally{global.fetch=previous}
 });
+const {searchWorkflow}=require('./search-workflow.cjs');
+
+test('Oath pagination survives mixed providers and advances only unfinished datasets',async()=>{
+ const previous=global.fetch,calls=[];
+ global.fetch=async url=>{
+  const u=new URL(url),family=u.pathname.includes('/stealer/')?'stealer':'breach',cursor=u.searchParams.get('cursor');calls.push({family,cursor});
+  if(family==='stealer')assert.equal(u.searchParams.get('country[]'),'FR');
+  return {ok:true,text:async()=>JSON.stringify({data:{items:[{id:family+(cursor||'first'),log_id:'fixture-log',password:'private'}],next_cursor:family==='stealer'&&!cursor?'stealer-page-2':null}})};
+ };
+ const search=task=>task.provider==='oathnet'?providers.searchOath(task,'fixture-key'):Promise.resolve({items:[],meta:{}});
+ try{
+  const first=await searchWorkflow({providers:['oathnet','brixhub'],query:'example',settings:{oathProfiles:false,oathFilters:{country:['FR']}}},search);
+  assert.deepEqual(first.meta.oathPagination.cursors,{stealer:'stealer-page-2'});
+  const next=await searchWorkflow({providers:['oathnet'],query:first.query,settings:{...first.meta.oathPagination.settings,oathCursors:first.meta.oathPagination.cursors}},search);
+  assert.equal(calls.length,3);assert.deepEqual(calls[2],{family:'stealer',cursor:'stealer-page-2'});
+  assert.equal(next.items.length,1);assert.equal(next.items[0].logId,'fixture-log');assert.equal(next.items[0].fields.password,'[redacted]');
+  assert.ok(!first.items.some(item=>item.id===next.items[0].id));assert.equal(next.meta.oathPagination,undefined);
+ }finally{global.fetch=previous}
+});
+
+test('Oath pagination retains failed dataset cursors for retry',async()=>{
+ const previous=global.fetch;
+ global.fetch=async url=>{if(url.includes('/stealer/'))throw Error('Unavailable');return {ok:true,text:async()=>JSON.stringify({data:{items:[]}})}};
+ try{
+  const result=await searchWorkflow({providers:['oathnet'],query:'example',settings:{oathProfiles:false}},task=>providers.searchOath(task,'fixture-key'));
+  assert.deepEqual(result.meta.oathPagination.cursors,{stealer:''});
+  assert.match(result.notice,/stealer unavailable/);
+ }finally{global.fetch=previous}
+});

@@ -41,10 +41,12 @@ function validateFilter(tree){
 }
 async function searchOath({query,settings,signal},key){
   if(!['breach','stealer'].includes(settings?.oathFamily)){
-    const outcomes=await Promise.allSettled(['breach','stealer'].map(oathFamily=>searchOath({query,signal,settings:{...settings,oathFamily,cursor:undefined}},key)));
+    const families=['breach','stealer'].filter(family=>!settings?.oathCursors||typeof settings.oathCursors[family]==='string');
+    if(!families.length)throw Error('No OathNet pages selected.');
+    const outcomes=await Promise.allSettled(families.map(oathFamily=>searchOath({query,signal,settings:{...settings,oathFamily,cursor:settings?.oathCursors?.[oathFamily]}},key)));
     const successful=outcomes.filter(x=>x.status==='fulfilled').map(x=>x.value);
     if(!successful.length)throw outcomes[0].reason;
-    const datasets=outcomes.map((outcome,i)=>({family:['breach','stealer'][i],status:outcome.status==='fulfilled'?'complete':'error',count:outcome.status==='fulfilled'?outcome.value.items.length:0,message:outcome.status==='rejected'?String(outcome.reason?.message||'Lookup failed.'):''}));
+    const datasets=outcomes.map((outcome,i)=>({family:families[i],status:outcome.status==='fulfilled'?'complete':'error',count:outcome.status==='fulfilled'?outcome.value.items.length:0,nextCursor:outcome.status==='fulfilled'?outcome.value.meta.nextCursor:settings?.oathCursors?.[families[i]]||'',message:outcome.status==='rejected'?String(outcome.reason?.message||'Lookup failed.'):''}));
     const failures=datasets.filter(x=>x.status==='error');
     return {items:successful.flatMap(x=>x.items),meta:{datasets},notice:failures.length?failures.map(x=>`OathNet ${x.family} unavailable: ${x.message}`).join(' · '):'Breach and stealer datasets searched'};
   }
@@ -66,7 +68,9 @@ async function searchOath({query,settings,signal},key){
   if(data.success===false)throw new Error(String(data.message||'OathNet rejected the search.'));
   const payload=data.data||data;
   if(!Array.isArray(payload.items))throw new Error('Unexpected OathNet response: data.items missing.');
-  return {items:rows(payload.items,`OathNet · ${family}`),meta:{total:payload.meta?.total??null,nextCursor:payload.next_cursor||null},notice:'OathNet V2 search'};
+  const items=rows(payload.items,`OathNet · ${family}`);
+  for(const item of items)item.id=item.fields.id?`${item.source}-${encodeURIComponent(String(item.fields.id))}`:`${item.id}-${encodeURIComponent(params.get('cursor')||'first')}`;
+  return {items,meta:{total:payload.meta?.total??null,nextCursor:payload.next_cursor||null},notice:'OathNet V2 search'};
 }
 async function searchBrix({query,settings,terms:explicitTerms,signal}){
   if(settings?.brixNameSearch&&!explicitTerms)return searchBrixNames({query,settings,signal});

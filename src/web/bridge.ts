@@ -49,7 +49,7 @@ async function searchBatch(payload:any){
       pendingItems.clear();
       const response=await rpc('searchBatch',{...payload,providers:selected.slice(offset,offset+4)},controller.signal,(type,data)=>{if(type==='providerResult')for(const item of data.result.items)pendingItems.set(item.id,item)});
       pendingItems.clear();
-      items.push(...response.items);status.push(...(response.meta?.providerStatus||[]));meta={...response.meta};if(response.notice)notices.push(response.notice);
+      items.push(...response.items);status.push(...(response.meta?.providerStatus||[]));meta={...meta,...response.meta,oathPagination:response.meta?.oathPagination||meta.oathPagination};if(response.notice)notices.push(response.notice);
     }
     if(payload.providers.includes('whatsmyname')&&!controller.signal.aborted){
       const info=await rpc('inspectQuery',{query:payload.query,type:payload.settings?.searchQueryType},controller.signal);

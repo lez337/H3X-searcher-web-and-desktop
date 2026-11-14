@@ -47,8 +47,14 @@ async function searchWorkflow(payload,search){
  }));
  const items=[],warnings=[];let successes=0;const metas=[];
  const providerStatus=[];
+ let oathPagination;
  outcomes.forEach((outcome,i)=>{
   if(!outcome)return;
+  if(tasks[i]==='oathnet'&&outcome.status==='fulfilled'){
+   const meta=outcome.value.meta||{};
+   const cursors=meta.datasets?Object.fromEntries(meta.datasets.filter(d=>d.nextCursor!=null).map(d=>[d.family,d.nextCursor])):meta.nextCursor?{[payload.settings.oathFamily]:meta.nextCursor}:{};
+   if(Object.keys(cursors).length)oathPagination={query:payload.query,settings:Object.fromEntries(['oathFamily','pageSize','oathFilters','oathOptions','searchQueryType'].filter(key=>payload.settings[key]!==undefined).map(key=>[key,payload.settings[key]])),cursors};
+  }
   const name=tasks[i]==='whatsmyname'?'Username search':freeProviders.registry.get(tasks[i])?.label||tasks[i];
   if(outcome.status==='canceled'){providerStatus.push({id:tasks[i],label:name,status:'skipped',count:0,message:'Search stopped.'})}
   else if(outcome.status==='rejected'){const message=String(outcome.reason?.message||'Lookup failed.');warnings.push(name+': '+message);providerStatus.push({id:tasks[i],label:name,status:'error',count:0,message})}
@@ -92,6 +98,6 @@ async function searchWorkflow(payload,search){
  }
  if(!payload.signal?.aborted&&!successes&&warnings.length&&emailCount)throw Error([...new Set(warnings)].join(' · '));
  if(!payload.signal?.aborted&&!successes&&tasks.length&&warnings.length)throw Error([...new Set(warnings)].join(' · '));
- return {query:originalQuery,items,meta:{queryType:detected.type,...(metas.length===1?metas[0]:{}),canceled:!!payload.signal?.aborted,providerStatus,profilesChecked,emailsChecked:emailCount,usernameRun:metas.find(meta=>meta.usernameRun)?.usernameRun},notice:payload.signal?.aborted?'Search stopped; completed results retained.':[...new Set(warnings)].join(' · ')};
+ return {query:originalQuery,items,meta:{oathPagination,queryType:detected.type,...(metas.length===1?metas[0]:{}),canceled:!!payload.signal?.aborted,providerStatus,profilesChecked,emailsChecked:emailCount,usernameRun:metas.find(meta=>meta.usernameRun)?.usernameRun},notice:payload.signal?.aborted?'Search stopped; completed results retained.':[...new Set(warnings)].join(' · ')};
 }
 module.exports={extractEmails,supportsRoblox,searchWorkflow};
