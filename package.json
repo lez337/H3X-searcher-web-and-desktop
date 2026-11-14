@@ -1,13 +1,18 @@
 {
   "name": "h3x-searcher",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "main": "desktop/main.cjs",
-  "repository": {"type":"git","url":"https://github.com/lez337/H3X-searcher-web-and-desktop.git"},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lez337/H3X-searcher-web-and-desktop.git"
+  },
   "releaseRepository": "lez337/H3X-searcher-web-and-desktop",
   "private": true,
   "type": "module",
   "description": "H3X shared web and connected Windows investigation workspace",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "prepare:shared": "node scripts/prepare-shared.mjs",
     "dev": "npm run prepare:shared && vite",
@@ -48,9 +53,22 @@
     "npmRebuild": false,
     "appId": "com.h3x.searcher.v2",
     "productName": "H3X Searcher",
-    "directories": {"output": "release"},
-    "files": ["desktop/**/*", "electron/**/*", "package.json", "build/icon.ico", "!desktop/*.test.cjs", "!electron/*.test.cjs", "!desktop/config.local.json"],
-    "win": {"target": "nsis", "icon": "build/icon.ico"},
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "electron/**/*",
+      "package.json",
+      "build/icon.ico",
+      "!desktop/*.test.cjs",
+      "!electron/*.test.cjs",
+      "!desktop/config.local.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
     "nsis": {
       "artifactName": "H3X-Searcher-Setup-${version}-x64.exe",
       "oneClick": false,

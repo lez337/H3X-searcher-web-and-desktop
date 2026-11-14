@@ -2,7 +2,7 @@
 const {app,BrowserWindow,ipcMain,session,shell,safeStorage,net}=require('electron');
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const {appUrl,trustedFrame}=require('./policy.cjs');
+const {appUrl,trustedFrame,allowPermission}=require('./policy.cjs');
 // Retain the original native Telegram/update profile while account investigations move to the cloud.
 const dataDirectory=path.join(app.getPath('appData'),'h3x-searcher-v2');
 require('node:fs').mkdirSync(dataDirectory,{recursive:true});app.setPath('userData',dataDirectory);
@@ -45,8 +45,8 @@ nativeIpc.handle('native:legacy-workspace',async()=>{
 });
 async function createWindow(){
   const accountSession=session.fromPartition('persist:h3x-account',{cache:false});
-  accountSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
-  accountSession.setPermissionCheckHandler(()=>false);
+  accountSession.setPermissionRequestHandler((contents,permission,callback,details)=>callback(contents===mainWindow?.webContents&&allowPermission(permission,details.requestingUrl,details.isMainFrame,origin)));
+  accountSession.setPermissionCheckHandler((contents,permission,_requestingOrigin,details)=>contents===mainWindow?.webContents&&allowPermission(permission,details.requestingUrl,details.isMainFrame,origin));
   mainWindow=new BrowserWindow({width:1500,height:950,minWidth:850,minHeight:650,title:'H3X Searcher',backgroundColor:'#09090b',icon:path.join(__dirname,'../build/icon.ico'),autoHideMenuBar:true,webPreferences:{session:accountSession,preload:path.join(__dirname,'preload.cjs'),additionalArguments:['--h3x-origin='+origin],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   mainWindow.setMenu(null);
   const external=value=>{try{const url=new URL(value);if(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password)shell.openExternal(url.href).catch(()=>{});}catch{}};

@@ -8,4 +8,8 @@ function appUrl(value,{development=false}={}){
 function trustedFrame(event,window,origin){
   return !!window&&!window.isDestroyed()&&event.sender===window.webContents&&event.senderFrame===window.webContents.mainFrame&&new URL(event.senderFrame.url).origin===origin;
 }
-module.exports={appUrl,trustedFrame};
+function allowPermission(permission,requestingUrl,isMainFrame,origin){
+  if(permission!=='clipboard-sanitized-write'||!isMainFrame)return false;
+  try{return new URL(requestingUrl).origin===origin}catch{return false;}
+}
+module.exports={appUrl,trustedFrame,allowPermission};

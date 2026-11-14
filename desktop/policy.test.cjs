@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {appUrl,trustedFrame}=require('./policy.cjs');
+const {appUrl,trustedFrame,allowPermission}=require('./policy.cjs');
 test('Desktop accepts HTTPS origins and permits loopback HTTP only in development',()=>{
   assert.equal(appUrl('https://h3x.example/'),'https://h3x.example');
   assert.equal(appUrl('http://127.0.0.1:5173/',{development:true}),'http://127.0.0.1:5173');
@@ -15,4 +15,12 @@ test('Only the trusted main frame can invoke local tools and shell updates',()=>
   assert.equal(trustedFrame({...event,senderFrame:{url:frame.url}},window,'https://h3x.example'),false);
   frame.url='https://other.example/';assert.equal(trustedFrame(event,window,'https://h3x.example'),false);
   assert.equal(trustedFrame(event,null,'https://h3x.example'),false);
+});
+test('Only the trusted main frame can copy text; clipboard reads and other permissions stay denied',()=>{
+  const origin='https://h3x.example';
+  assert.equal(allowPermission('clipboard-sanitized-write',origin+'/',true,origin),true);
+  assert.equal(allowPermission('clipboard-sanitized-write',origin+'/',false,origin),false);
+  assert.equal(allowPermission('clipboard-sanitized-write','https://other.example/',true,origin),false);
+  assert.equal(allowPermission('clipboard-sanitized-write',undefined,true,origin),false);
+  for(const permission of ['clipboard-read','geolocation','media','notifications'])assert.equal(allowPermission(permission,origin+'/',true,origin),false);
 });

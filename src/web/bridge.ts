@@ -145,7 +145,7 @@ export const bridge:Window['h3x']={
   clipboard:async value=>{await navigator.clipboard.writeText(String(value));return true},
   telegram:async(action,payload)=>window.h3xDesktop?window.h3xDesktop.telegram(action,payload):['status','restore'].includes(action)?{connected:false,available:false,error:'Telegram account sessions require the desktop application.'}:desktop(),
   stealerTree:p=>rpc('stealerTree',p),openBotReplies:desktop,checkTool:async()=>false,runGhunt:desktop,
-  updateStatus:async()=>window.h3xDesktop?window.h3xDesktop.updateStatus():({phase:'idle',message:'Reload H3X to use the latest deployed version.',version:'0.3.0 Web',supported:false,repository:'',enabled:false,progress:0}),
+  updateStatus:async()=>window.h3xDesktop?window.h3xDesktop.updateStatus():({phase:'idle',message:'Reload H3X to use the latest deployed version.',version:'0.3.1 Web',supported:false,repository:'',enabled:false,progress:0}),
   configureUpdates:async value=>window.h3xDesktop?window.h3xDesktop.configureUpdates(value):desktop(),checkUpdates:async()=>window.h3xDesktop?window.h3xDesktop.checkUpdates():desktop(),installUpdate:async()=>window.h3xDesktop?window.h3xDesktop.installUpdate():desktop()
 };
 window.h3x=bridge;
