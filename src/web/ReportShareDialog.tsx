@@ -40,8 +40,7 @@ export default function ReportShareDialog(){
     {!isPublic&&<><label htmlFor="report-code">Four-digit access code</label>
     <div className="report-code-row"><input id="report-code" className="report-created-code" readOnly value={report.code} onFocus={event=>event.currentTarget.select()}/><button onClick={()=>copy(report.code,'code')}>{copied==='code'?<Check size={16}/>:<Copy size={16}/>}Copy code</button></div>
     <label className="check report-key-saved"><input type="checkbox" checked={saved} disabled={busy||active} onChange={event=>setSaved(event.target.checked)}/>I saved the key</label></>}
-    <label htmlFor="report-link">Investigation link</label><input id="report-link" readOnly value={report.url} onFocus={event=>event.currentTarget.select()} aria-describedby="report-link-state"/>
-    <small id="report-link-state">{active?(isPublic?'Share this public link. No code is needed.':'Share the link and code with your intended recipient.'):(isPublic?'The link becomes public when you click Create public link.':'The link stays locked until you confirm and activate it.')}</small>
+    <label htmlFor="report-link">Investigation link</label><input id="report-link" readOnly value={report.url} onFocus={event=>event.currentTarget.select()}/>
     {message&&<p role="status" className="report-share-message">{message}</p>}
     <div className="button-row report-share-actions">{active?<><button onClick={()=>copy(report.url,'link')}><Copy size={15}/>Copy link</button><a className="report-open-link" href={report.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/>Open link</a><button className="primary" onClick={()=>close(true)}>Cancel</button></>:<><button disabled={busy} onClick={cancel}>Cancel</button><button className="primary" disabled={(!isPublic&&!saved)||busy} onClick={activate}>{busy?'Creating link...':isPublic?'Create public link':'Create link'}</button></>}</div>
   </section></div>;

@@ -119,7 +119,7 @@ export default function PeopleDeepSearch({person,open,credential,settings,exclud
    <div className="deep-terms">{terms.map(term=><label key={term.id}><input type="checkbox" checked={chosen.has(term.id)} disabled={!chosen.has(term.id)&&chosen.size>=24} onChange={()=>setChosen(old=>{const next=new Set(old);next.has(term.id)?next.delete(term.id):next.add(term.id);return next})}/><small>{term.label}</small><span>{term.value}</span></label>)}</div>
    {!terms.length&&<p className="deep-alert">This person has no supported identifier to search.</p>}
    <details className="deep-plan"><summary>Preview {plan.tasks.length} search tasks<ChevronRight size={13}/></summary>{plan.tasks.map((task,i)=><div key={i}><b>{task.provider==='oathnet'?`OathNet bulk · ${task.terms?.length} terms`:task.provider==='ghunt'?`GHunt · ${task.query}`:`BrixHub · ${task.query}`}</b><small>{task.filtered?'Filtered':'Unfiltered'}{Object.keys(task.filters).length?' · '+Object.keys(task.filters).join(', '):''}</small></div>)}</details>
-   <p className="deep-hint">{plan.tasks.length} search tasks · Provider quotas apply.</p>
+
   </>}
   {phase==='running'&&<div className="deep-running" role="status" aria-live="polite"><span className="search-spinner"/><h3>{followed?`Following new information · round ${round}`:'Searching known identifiers'}</h3><p>{progress?.message||'Starting deep search'}</p><progress value={progress?.completed||0} max={progress?.total||1}/><small>{progress?.completed||0} / {progress?.total||plan.tasks.length} tasks · {progress?.records||0} records collected</small></div>}
   {phase!=='confirm'&&<>

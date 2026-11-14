@@ -114,3 +114,23 @@
 .investigation-merge-dialog .search-settings-footer .primary:hover:not(:disabled){background:linear-gradient(180deg,#fff,#e5e5e5)!important;box-shadow:0 0 16px #ffffff16}
 .investigation-merge-dialog .search-settings-footer button:disabled{opacity:.35;box-shadow:none}
 .investigation-merge-dialog .search-settings-header>button{min-width:34px;min-height:34px;padding:7px;background:transparent}
+
+.settings-page{max-width:1120px}
+.settings-page .settings-layout{grid-template-columns:184px minmax(0,1fr);gap:28px;margin-top:24px}
+.settings-nav-group{display:grid;gap:3px}
+.settings-nav-group>span{padding:12px 10px 6px;color:#717171;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.settings-tabs .settings-nav-group button{justify-content:flex-start;min-height:34px;padding:8px 10px;font-size:12px}
+.settings-page .panel{padding:20px;gap:16px}
+.settings-page .panel h2{font-size:16px}
+.settings-page .panel label{font-family:inherit;letter-spacing:0;line-height:1.5}
+.settings-page .panel button,.search-settings-dialog .panel button{min-height:32px;padding:7px 11px;max-width:100%;font-size:12px;line-height:1.4}
+.settings-page .button-row{gap:8px}
+.settings-page textarea{width:100%;min-width:0}
+.settings-page small{color:#888;font-size:11px;line-height:1.5}
+@media(max-width:900px){
+ .settings-page .settings-layout{grid-template-columns:1fr;gap:18px}
+ .settings-page .settings-tabs{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:6px}
+ .settings-nav-group{display:flex;gap:4px;flex-shrink:0}
+ .settings-nav-group>span{display:none}
+ .settings-page .panel{padding:16px}
+}

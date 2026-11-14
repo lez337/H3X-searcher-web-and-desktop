@@ -9,7 +9,7 @@ import {validateState} from './state.mjs';
 import ReportShareDialog from './ReportShareDialog';
 import SharedInvestigation from './SharedInvestigation';
 import HostedReports from './HostedReports';
-import AccountMenu from './AccountMenu';
+import AccountMenu,{AccountSettings} from './AccountMenu';
 import LoginScreen from './LoginScreen';
 
 export function WebWorkspace(){
@@ -29,7 +29,7 @@ export function WebWorkspace(){
   async function importDesktop(){try{
     const state=await window.h3xDesktop!.legacyWorkspace();if(!state){setMessage('No previous Windows workspace was found. You can restore a workspace.json backup instead.');return;}await replace(validateState(state));
   }catch(error){setMessage((error as Error).message)}}
-  return <section className="panel web-workspace"><div className="eyebrow">H3X CLOUD</div><h2>Account workspace</h2><p>Investigations, graph, pins, settings and search history save automatically to your account. Sign in with the same name and 8-digit key on another device to reopen them. Changes from another device appear automatically while this workspace has no unsaved edits.</p><p>Provider keys are encrypted in your account and used by both the app and your account API. Activity logs stay in this browser, separately for each account.</p><InstallApp/><div className="button-row"><button onClick={backup}><Download size={15}/>Download backup</button><button onClick={restore}><Upload size={15}/>Restore backup</button><button onClick={importBrowser}>Import previous browser workspace</button>{window.h3xDesktop&&<button onClick={importDesktop}>Import previous Windows workspace</button>}</div>{message&&<p role="status">{message}</p>}</section>;
+  return <section className="panel web-workspace"><h2>Account workspace</h2><InstallApp/><div className="button-row"><button onClick={backup}><Download size={15}/>Download backup</button><button onClick={restore}><Upload size={15}/>Restore backup</button><button onClick={importBrowser}>Import previous browser workspace</button>{window.h3xDesktop&&<button onClick={importDesktop}>Import previous Windows workspace</button>}</div>{message&&<p role="status">{message}</p>}</section>;
 }
 function WorkspaceApp(){
   useEffect(()=>{
@@ -62,7 +62,7 @@ function WorkspaceApp(){
     const pending:Promise<unknown>[]=[];window.dispatchEvent(new CustomEvent('h3x-save-now',{detail:pending}));await Promise.all(pending);
     await requestJson('/api/logout',{});clearSessionKeys();closeWorkspace();setAccount(null);
   }catch(error){setError((error as Error).message)}finally{setBusy(false)}}
-  if(account)return <><App/><ReportShareDialog/>{showReports&&<HostedReports onClose={()=>setShowReports(false)}/>}<AccountMenu account={account} sync={sync} busy={busy} onLogout={logout} onReports={()=>setShowReports(true)}/>{(error||sync.status==='error')&&<div className="web-account-error" role="alert">{error||sync.message}<button onClick={async()=>download(JSON.stringify(await loadWorkspace(),null,2),'H3X-unsaved-workspace.json','application/json')}><Download size={14}/>Download backup</button></div>}</>;
+  if(account)return <><App accountSettings={<AccountSettings account={account} sync={sync} busy={busy} onLogout={logout} onReports={()=>setShowReports(true)}/>} accountControl={onSettings=><AccountMenu account={account} sync={sync} onSettings={onSettings}/>}/><ReportShareDialog/>{showReports&&<HostedReports onClose={()=>setShowReports(false)}/>}{(error||sync.status==='error')&&<div className="web-account-error" role="alert">{error||sync.message}<button onClick={async()=>download(JSON.stringify(await loadWorkspace(),null,2),'H3X-unsaved-workspace.json','application/json')}><Download size={14}/>Download backup</button></div>}</>;
   return <LoginScreen ready={ready} busy={busy} error={error} mode={mode} name={name} accountKey={key} remember={remember} created={created} saved={saved} copied={copied} onMode={value=>{setMode(value);setKey('');setError('')}} onName={setName} onKey={setKey} onRemember={setRemember} onSaved={setSaved} onCopy={copyKey} onContinue={continueCreated} onSubmit={submit}/>;
 }
 export default function WebApp(){

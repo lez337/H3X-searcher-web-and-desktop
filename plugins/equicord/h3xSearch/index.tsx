@@ -72,7 +72,6 @@ function SearchModal({user, ...props}: ModalProps & {user: User}) {
         <ModalContent><div className="h3x-search">
             <div className="h3x-identity"><span className="h3x-monogram" aria-hidden="true">{user.username.slice(0, 1).toUpperCase()}</span><div><strong>{user.username}</strong><div className="h3x-muted">Discord · {user.id}</div></div></div>
             {!started && <div>
-                <p>Search this user’s Discord ID and username with H3X.</p>
                 <label style={{display: 'flex', gap: 10, alignItems: 'center', margin: '16px 0'}}><input type="checkbox" checked={includeConnections} onChange={event => setIncludeConnections(event.currentTarget.checked)}/>Also search usernames of linked accounts on this Discord profile</label>
                 {includeConnections && <div>
                     {loadingConnections ? <p role="status">Loading visible linked accounts…</p> : connectionsError ? <p role="alert">{connectionsError}</p> : <>
@@ -88,7 +87,7 @@ function SearchModal({user, ...props}: ModalProps & {user: User}) {
             {result && <><p className="h3x-muted">{result.notice}</p>
                 <div className="h3x-summary"><strong>{result.items.length} {result.items.length === 1 ? 'record' : 'records'}</strong><button onClick={() => setStarted(false)}>Change search</button></div>
                 <details className="h3x-providers" open={result.providerStatus.some(p => p.status !== 'complete')}><summary>Search sources · {result.providerStatus.filter(p => p.status === 'complete').length}/{result.providerStatus.length} completed</summary>
-                    {result.providerStatus.map(p => <div className="h3x-provider" key={p.source}><div><strong>{p.source}</strong><span className={p.status === 'error' ? 'h3x-error' : 'h3x-muted'}>{p.status === 'complete' ? `${p.count} found` : p.status === 'skipped' ? 'Not configured' : `Failed${p.httpStatus ? ` · HTTP ${p.httpStatus}` : ''}`}</span></div>{p.status !== 'complete' && <p className="h3x-muted">{p.message || 'No error detail received. Redeploy the latest H3X Worker to enable provider diagnostics.'}</p>}</div>)}
+                    {result.providerStatus.map(p => <div className="h3x-provider" key={p.source}><div><strong>{p.source}</strong><span className={p.status === 'error' ? 'h3x-error' : 'h3x-muted'}>{p.status === 'complete' ? `${p.count} found` : p.status === 'skipped' ? 'Not configured' : `Failed${p.httpStatus ? ` · HTTP ${p.httpStatus}` : ''}`}</span></div>{p.status !== 'complete' && <p className="h3x-muted">{p.message || 'No error detail received.'}</p>}</div>)}
                 </details>
                 {!result.items.length && <div className="h3x-empty"><strong>{result.providerStatus.every(p => p.status !== 'complete') ? 'Search unavailable' : 'No matching records'}</strong><p className="h3x-muted">{result.providerStatus.some(p => p.status === 'error') ? 'Some searches failed. Review the source errors above; this is not a complete result.' : 'No matches found in the completed searches.'}</p></div>}
                 {result.providerStatus.some(p => p.status === 'error') && <button onClick={() => setAttempt(attempt + 1)}>Retry search</button>}

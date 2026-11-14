@@ -7,7 +7,7 @@ type Props={cases:Case[];pins:Place[];linkCount:number;botCount:number;ready:boo
 
 function updatedLabel(value:string){
  const date=new Date(value);
- return Number.isNaN(date.getTime())?'Saved locally':date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+ return Number.isNaN(date.getTime())?'Saved':date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
 }
 
 export default function Dashboard({cases,pins,linkCount,botCount,ready,onNavigate,onNewCase,onOpenCase,onOpenPin,onSearch}:Props){
@@ -31,7 +31,7 @@ export default function Dashboard({cases,pins,linkCount,botCount,ready,onNavigat
  return <div className="content dashboard liquid-dashboard" onPointerMove={reflect}>
   <section className="dashboard-hero liquid-glass" aria-labelledby="dashboard-title">
    <div className="dashboard-hero-copy">
-    <div className="eyebrow"><span className="quiet-dot"/> YOUR LOCAL WORKSPACE</div>
+    <div className="eyebrow"><span className="quiet-dot"/> YOUR WORKSPACE</div>
     <h1 id="dashboard-title">A little clarity.<br/><span>In the dark.</span></h1>
 
     <form className="dashboard-search" onSubmit={event=>{event.preventDefault();onSearch(query.trim())}}>
@@ -45,7 +45,7 @@ export default function Dashboard({cases,pins,linkCount,botCount,ready,onNavigat
    <div className="hero-corner" aria-hidden="true">01 / OVERVIEW</div>
   </section>
 
-  <div className="dashboard-section-label"><span>WORKSPACE AT A GLANCE</span><span>{ready?'SAVED LOCALLY':'LOADING WORKSPACE'}</span></div>
+  <div className="dashboard-section-label"><span>WORKSPACE AT A GLANCE</span>{!ready&&<span>LOADING WORKSPACE</span>}</div>
   <div className="dashboard-stats">{stats.map(({label,value,Icon,page,note},index)=><button className="dashboard-stat liquid-glass" key={page} onClick={()=>onNavigate(page)} aria-label={`${label}: ${ready?value:'loading'}. ${note}`}><div className="stat-heading"><Icon size={17}/><ArrowDownRight size={15}/></div><div className="stat-value">{ready?String(value).padStart(2,'0'):'—'}<span>0{index+1}</span></div><div className="stat-caption"><span>{label}</span><ChevronRight size={13}/></div></button>)}</div>
 
   <div className="dashboard-lower">
@@ -64,6 +64,6 @@ export default function Dashboard({cases,pins,linkCount,botCount,ready,onNavigat
     <button className="dashboard-view-all" onClick={()=>onNavigate(tab==='cases'?'cases':'map')}>View {tab==='cases'?'all investigations':'map'}<ArrowRight size={14}/></button>
    </section>
   </div>
-  <footer className="dashboard-footer"><span><span className="quiet-dot"/> {ready?'Your space. Your pace.':'Loading your workspace…'}</span><span>H3X <span>/</span> SEARCHER</span></footer>
+
  </div>;
 }
