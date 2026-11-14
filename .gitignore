@@ -1,0 +1,17 @@
+node_modules/
+.npm-cache/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env*
+!.env.example
+src/web/shared.js
+worker/username-core.cjs
+artifacts/
+*.log
+release/
+H3X v2 WEB/
+H3X v2 source code/
+desktop/config.local.json

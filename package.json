@@ -1,0 +1,70 @@
+{
+  "name": "h3x-searcher",
+  "version": "0.3.0",
+  "main": "desktop/main.cjs",
+  "repository": {"type":"git","url":"https://github.com/lez337/H3X-searcher-web-and-desktop.git"},
+  "releaseRepository": "lez337/H3X-searcher-web-and-desktop",
+  "private": true,
+  "type": "module",
+  "description": "H3X shared web and connected Windows investigation workspace",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "prepare:shared": "node scripts/prepare-shared.mjs",
+    "dev": "npm run prepare:shared && vite",
+    "dev:worker": "npm run prepare:shared && node scripts/build-worker.mjs && wrangler dev --port 8787",
+    "dev:desktop": "electron . --dev",
+    "start": "electron .",
+    "desktop:configure": "node scripts/configure-desktop.mjs",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run prepare:shared && npm run typecheck && vite build && node scripts/build-worker.mjs",
+    "test": "npm run prepare:shared && node scripts/build-worker.mjs && node --test electron/*.test.cjs desktop/*.test.cjs tests/*.test.mjs",
+    "preview": "wrangler dev --port 8787",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:check": "npm run build && wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.468.0",
+    "maplibre-gl": "^6.18.0",
+    "qrcode": "^1.5.4",
+    "telegram": "^2.26.8",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^45.3.1",
+    "electron-builder": "^26.18.0",
+    "wrangler": "^4.0.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.8.0",
+    "vite": "^6.2.0"
+  },
+  "build": {
+    "npmRebuild": false,
+    "appId": "com.h3x.searcher.v2",
+    "productName": "H3X Searcher",
+    "directories": {"output": "release"},
+    "files": ["desktop/**/*", "electron/**/*", "package.json", "build/icon.ico", "!desktop/*.test.cjs", "!electron/*.test.cjs", "!desktop/config.local.json"],
+    "win": {"target": "nsis", "icon": "build/icon.ico"},
+    "nsis": {
+      "artifactName": "H3X-Searcher-Setup-${version}-x64.exe",
+      "oneClick": false,
+      "runAfterFinish": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "include": "build/installer.nsh",
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "uninstallDisplayName": "H3X Searcher",
+      "differentialPackage": false
+    }
+  }
+}

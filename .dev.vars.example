@@ -1,0 +1,3 @@
+# Required to save provider keys. Generate once with: node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+# Keep this stable and backed up; changing it prevents decryption of saved keys.
+H3X_CREDENTIALS_KEY=
