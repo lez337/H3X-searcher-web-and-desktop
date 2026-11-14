@@ -3,6 +3,9 @@ const {app,BrowserWindow,ipcMain,session,shell,safeStorage,net}=require('electro
 const fs=require('node:fs/promises');
 const path=require('node:path');
 const {appUrl,trustedFrame}=require('./policy.cjs');
+// Retain the original native Telegram/update profile while account investigations move to the cloud.
+const dataDirectory=path.join(app.getPath('appData'),'h3x-searcher-v2');
+require('node:fs').mkdirSync(dataDirectory,{recursive:true});app.setPath('userData',dataDirectory);
 const development=!app.isPackaged&&process.argv.includes('--dev');
 const origin=appUrl(development?(process.env.H3X_DEV_URL||'http://127.0.0.1:5173'):require('./config.json').appUrl,{development});
 let mainWindow;
