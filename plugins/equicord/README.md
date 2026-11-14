@@ -13,15 +13,9 @@ The native helper supports `*.workers.dev`. For a custom domain, add its exact h
 
 Keys are stored in Equicord's local plugin settings; treat settings exports as sensitive. H3X stores only the key hash. **Replace API key** disables the previous key; **Revoke API key** disables access immediately. The key cannot read or edit your investigations, manage reports, or sign into your account. Signing out does not revoke the integration key.
 
-The API checks BrixHub by exact search fields `discord_id` and `nom_utilisateur`. It also searches OathNet's breach and stealer datasets for both the selected Discord ID and username, plus the OathNet Discord profile lookup. Configure `OATHNET_API_KEY` as a Worker secret to enable these five OathNet calls. Without it, the popup explicitly reports that OathNet was skipped. Browser-only provider keys are not used by this integration. Results contain the first provider page (20 rows per search), with duplicate cards removed and sensitive credential fields redacted. It does not search saved investigations or perform exhaustive pagination. Username matches may be unrelated people; verify them. Provider failures appear separately from no matches.
+The API checks BrixHub by exact search fields `discord_id` and `nom_utilisateur`. It also searches OathNet's breach and stealer datasets for the selected Discord ID and username, plus the OathNet Discord profile lookup. Save your OathNet key in **H3X Settings → OathNet**, while signed into the account that generated your integration key. Both the website and this integration use that account's encrypted provider key. Without a saved key, the popup explicitly reports that OathNet was skipped. Results contain the first provider page (20 rows per search), with duplicate cards removed and sensitive credential fields redacted. It does not search saved investigations or perform exhaustive pagination. Username matches may be unrelated people; verify them. Provider failures appear separately from no matches.
 
-To configure OathNet, run this in the H3X project and paste your OathNet provider key when prompted (not your H3X integration key):
-
-```powershell
-npx wrangler@4 secret put OATHNET_API_KEY
-```
-
-Redeploy the updated Worker. Existing plugin installations will receive the added OathNet cards from the API without changing their H3X API key. OathNet calls use the server's configured provider subscription and its limits.
+Deploy the shared H3X Worker with its `H3X_CREDENTIALS_KEY` runtime secret, then save the provider key through account settings. The former global `OATHNET_API_KEY` secret is no longer used for account searches. Existing integration keys keep working and use their owning account's saved provider subscription and limits.
 
 There is no H3X request quota or expiry for this key. Cloudflare service quotas, costs and upstream provider restrictions still apply; this does not grant unlimited third-party API calls.
 
@@ -51,4 +45,4 @@ Cards highlight the record name and source, with separate Identity, Contact, and
 
 Failed sources expand automatically with an HTTP status where available and guidance for authentication (401), access restrictions (403), rate limits (429), outages, or timeouts. A failed request is distinct from a successful search with zero matches. Retry search repeats all selected searches. Change search returns to the linked-account choice.
 
-These diagnostics require redeploying the Worker as well as updating the whole plugin folder and rebuilding Equicord. An OathNet 401 concerns the server's OATHNET_API_KEY secret; an H3X endpoint 401 concerns the integration key in plugin settings. A 403 may require checking the provider subscription or server access; the popup cannot change provider permissions.
+These diagnostics require redeploying the Worker as well as updating the whole plugin folder and rebuilding Equicord. An OathNet 401 concerns the OathNet key saved in the owning H3X account; an H3X endpoint 401 concerns the integration key in plugin settings. A 403 may require checking the provider subscription or server access; the popup cannot change provider permissions.
