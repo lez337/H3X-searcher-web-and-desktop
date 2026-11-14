@@ -2,6 +2,8 @@
 
 One React application, one Cloudflare backend, one account workspace.
 
+The production Worker is connected to this repository's `main` branch. Pushes build and deploy the shared website used by both browser and Windows clients.
+
 - Website: [h3x-web.h3x-project.workers.dev](https://h3x-web.h3x-project.workers.dev/)
 - Source and Windows releases: [lez337/H3X-searcher-web-and-desktop](https://github.com/lez337/H3X-searcher-web-and-desktop)
 - Edit `src/` for shared features, `worker/` for account APIs, and `desktop/` for the Windows launcher.
