@@ -36,6 +36,7 @@ export type GraphWorkspace = {
     detailMode?: 'details' | 'people' | 'investigations';
     nodes: CustomEntity[];
     positions: Record<string, Vec3>;
+    positions3D?: Record<string, Vec3>;
     hidden: string[];
     colors?: Record<string, string>;
 };
@@ -211,4 +212,33 @@ export function layoutGraph(ids: string[], links: GraphLink[], flat = false): Re
             p[key] += Math.max(-10, Math.min(10, force[i][key] - p[key] * .003)) * (1 - step / steps * .7); });
     }
     return Object.fromEntries(ids.map((id, i) => [id, points[i]]));
+}
+
+export function layoutPeople(nodes: GraphNode[], links: GraphLink[], flat: boolean, saved: Record<string, Vec3> = {}): Record<string, Vec3> {
+    const core = nodes.filter(n => !n.derived || n.kind === 'Person');
+    const groups = new Map(core.filter(n => n.kind === 'Person').map(n => [n.id, nodes.filter(d => d.derived && d.kind !== 'Person' && d.caseId === n.caseId && d.personId === n.personId)]));
+    const radius = Math.max(320, ...[...groups.values()].map(details => details.length * 85 / 2.3));
+    const positions = layoutGraph(core.map(n => n.id), links, flat);
+    const spacing = (radius * 2 + 350) / 240;
+    for (const n of core) {
+        const p = positions[n.id];
+        positions[n.id] = saved[n.id] || {x:p.x * spacing, y:p.y * spacing, z:p.z * spacing};
+    }
+    const center = core.reduce((sum, n) => {
+        const p = positions[n.id];
+        return {x:sum.x + p.x / core.length, y:sum.y + p.y / core.length};
+    }, {x:0, y:0});
+    for (const [id, details] of groups) {
+        const p = positions[id], angle = Math.atan2(p.y - center.y, p.x - center.x);
+        details.forEach((detail, i) => {
+            const t = details.length === 1 ? 0 : i / (details.length - 1) - .5;
+            const theta = angle + t * 2.3;
+            const depth = flat || details.length === 1 ? 0 : Math.sin(i * Math.PI * (3 - Math.sqrt(5))) * radius * .65;
+            const previous = saved[detail.id];
+            // Repair legacy inward expansion while retaining outward manual placements.
+            positions[detail.id] = previous && (previous.x - p.x) * Math.cos(angle) + (previous.y - p.y) * Math.sin(angle) > 120
+                ? previous : {x:p.x + Math.cos(theta) * radius, y:p.y + Math.sin(theta) * radius, z:flat ? 0 : p.z + depth};
+        });
+    }
+    return positions;
 }

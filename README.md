@@ -59,7 +59,7 @@ Telegram sessions remain encrypted by Windows on their device. Telegram and GHun
 
 ## GitHub and automatic updates
 
-GitHub Actions runs tests and production build checks, then builds both Windows installers for every push to `main`. Download the **H3X-Windows** workflow artifact. Pushing a `v<package version>` tag creates a GitHub release with `H3X-Setup.exe`, the versioned offline installer, and `SHA256SUMS.txt`. The website downloads the latest `H3X-Setup.exe`: it downloads and verifies the current desktop installer, installs silently, then offers **Start H3X**. Installed Windows apps check this repository for native-shell updates.
+GitHub Actions runs tests and production build checks, then builds both Windows installers for every push to `main`. Download the **H3X-Windows** workflow artifact. Pushing a `v<package version>` tag creates a GitHub release with `H3X-Setup.exe`, the versioned offline installer, and `SHA256SUMS.txt`. The website downloads the latest `H3X-Setup.exe`: it downloads and verifies the current desktop installer, installs silently, then offers **Start H3X**. Installed Windows x64 apps check this repository 30 seconds after launch and every six hours, and automatically download newer versions. A notice offers **Install & close H3X** once the download is ready; installation waits for the account workspace to save. Use **Settings → Backups & app** to see the installed version, check manually, or disable automatic checks.
 
 From Windows, with Node.js, npm, Git, installed dependencies (`npm ci`), and GitHub push access configured, release a new version:
 

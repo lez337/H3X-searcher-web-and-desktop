@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Box, Check, ChevronRight, Download, Edit3, Eye, EyeOff, Focus, FolderOpen, HelpCircle, Link2, List, Maximize2, Minus, MoreHorizontal, MousePointer2, Network, Plus, Redo2, RotateCw, Search, Shuffle, Tag, Trash2, Undo2, X } from 'lucide-react';
 import GraphCanvas, { type GraphCanvasHandle } from './GraphCanvas';
-import { emptyGraph, entityKinds, graphNodes, investigationView, expandedPersonNodes, kindGlyph, layoutGraph, palette, type CustomEntity, type GraphLink, type GraphNode, type GraphRecord, type GraphTarget, type GraphWorkspace, type Vec3 } from './graphModel';
+import { emptyGraph, entityKinds, graphNodes, investigationView, expandedPersonNodes, kindGlyph, layoutPeople, palette, type CustomEntity, type GraphLink, type GraphNode, type GraphRecord, type GraphTarget, type GraphWorkspace, type Vec3 } from './graphModel';
 import './graph.css';
 type Props = Omit<GraphRecord, 'graph'> & {
     graph?: GraphWorkspace;
@@ -62,15 +62,16 @@ export default function LinkGraph(props: Props) {
     useEffect(() => { scene.current?.fit(); }, [visibleTopology]);
     const visibleIds = new Set(visibleNodes.map(n => n.id)), visibleLinks = allLinks.filter(l => visibleIds.has(l.from) && visibleIds.has(l.to));
     const topology = allNodes.map(n => n.id).join('|') + '::' + allLinks.map(l => l.from + '>' + l.to).join('|');
-    const generated = useMemo(() => layoutGraph(allNodes.map(n => n.id), allLinks, flat), [topology, flat]);
-    const positions = useMemo(() => ({ ...generated, ...record.graph.positions }), [generated, record.graph.positions]);
+    const positionKey = flat ? 'positions' : 'positions3D';
+    const savedPositions = record.graph[positionKey] || {};
+    const positions = useMemo(() => layoutPeople(allNodes, allLinks, flat, savedPositions), [topology, flat, record.graph.positions, record.graph.positions3D]);
     const activeNode = selected?.kind === 'node' ? allNodes.find(n => n.id === selected.id) : undefined, activeLink = selected?.kind === 'link' ? allLinks.find(l => l.id === selected.id) : undefined;
     const activeConnections = activeNode ? allLinks.filter(l => l.from === activeNode.id || l.to === activeNode.id) : [];
     const nodeName = (id: string) => allNodes.find(n => n.id === id)?.label || 'Unavailable entity';
     const hiddenCount = record.graph.hidden.length;
     function commit(next: GraphRecord, message: string) {
         const ids = new Set(graphNodes({...next,graph:{...next.graph,detailMode:'details'}}).map(n => n.id));
-        next = { ...next, graph: { ...next.graph, positions: Object.fromEntries(Object.entries({ ...positions, ...next.graph.positions }).filter(([id]) => ids.has(id))) } };
+        next = { ...next, graph: { ...next.graph, positions: Object.fromEntries(Object.entries(next.graph.positions).filter(([id]) => ids.has(id))), positions3D: Object.fromEntries(Object.entries(next.graph.positions3D || {}).filter(([id]) => ids.has(id))) } };
         history.current.past.push(latest.current);
         if (history.current.past.length > 50)
             history.current.past.shift();
@@ -153,7 +154,7 @@ export default function LinkGraph(props: Props) {
                 const node: CustomEntity = { caseId: editor.id ? r.graph.nodes.find(n => n.id === id)?.caseId : investigationId, id, label, note, kind: editor.kind as CustomEntity['kind'], color: editor.color };
                 graph.nodes = editor.id ? graph.nodes.map(n => n.id === id ? node : n) : [...graph.nodes, node];
                 if (editor.position)
-                    graph.positions = { ...graph.positions, [id]: editor.position };
+                    graph[positionKey] = { ...savedPositions, [id]: editor.position };
             }
             commit({ ...r, cases, pins, graph }, editor.id ? 'Entity updated.' : 'Entity added.');
             setSelected({ kind: 'node', id });
@@ -190,7 +191,7 @@ export default function LinkGraph(props: Props) {
         return;
     } addLink(connecting, id); }
     function context(x: number, y: number, target: GraphTarget, position?: Vec3) { setSelected(target); setMenu({ x: Math.min(x, window.innerWidth - 245), y: Math.max(10, Math.min(y, window.innerHeight - 330)), target, position }); }
-    function autoLayout() { changeGraph({ ...record.graph, positions: { ...record.graph.positions, ...layoutGraph(allNodes.map(n => n.id), allLinks, flat) } }, 'Layout arranged.'); requestAnimationFrame(() => scene.current?.fit()); }
+    function autoLayout() { changeGraph({ ...record.graph, [positionKey]: { ...savedPositions, ...layoutPeople(allNodes, allLinks, flat) } }, 'Layout arranged.'); requestAnimationFrame(() => scene.current?.fit()); }
     function focusNode(id: string) {
         const node = allNodes.find(n => n.id === id);
         const owner = node?.personId ? allNodes.find(n => n.kind === 'Person' && n.caseId === node.caseId && n.personId === node.personId) : undefined;
@@ -239,7 +240,7 @@ export default function LinkGraph(props: Props) {
    <div className={'graph-body ' + (listOpen ? '' : 'graph-list-closed ') + (selected ? '' : 'graph-inspector-closed')}>
     {listOpen && <aside className="graph-entity-panel"><div className="graph-panel-title"><span>ENTITIES</span><b>{visibleNodes.length}<span> / {allNodes.length}</span></b></div><div className="graph-entity-list">{visibleNodes.map(node => <div className="graph-entity-row" key={node.id}><button className={selected?.kind === 'node' && selected.id === node.id ? 'selected' : ''} onClick={() => connecting ? connectTo(node.id) : select({ kind: 'node', id: node.id })} aria-expanded={node.derived && node.kind === 'Person' ? expandedPeople.has(node.id) : undefined} onDoubleClick={() => focusNode(node.id)} onContextMenu={e => { e.preventDefault(); context(e.clientX, e.clientY, { kind: 'node', id: node.id }); }}><span className="graph-entity-glyph" style={{ color: node.color }}>{kindGlyph[node.kind]}</span><span><b>{node.label}</b><small>{node.kind}{node.derived && node.kind === 'Person' ? (expandedPeople.has(node.id) ? ' · Click to collapse' : ' · Click to expand') : ''}</small></span></button><button className="graph-entity-more" aria-label={'Options for ' + node.label} onClick={e => { const r = e.currentTarget.getBoundingClientRect(); context(r.right, r.bottom, { kind: 'node', id: node.id }); }}><MoreHorizontal size={15}/></button></div>)}{!visibleNodes.length && <p className="graph-list-empty">{allNodes.length ? 'No matching entities.' : 'Your entities will appear here.'}</p>}</div><div className="graph-entity-footer"><button onClick={() => addNode()}><Plus size={14}/> Add entity</button>{hiddenCount > 0 && <button onClick={() => changeGraph({ ...record.graph, hidden: [] }, 'Hidden entities restored.')}><Eye size={13}/> Restore {hiddenCount} hidden</button>}</div></aside>}
     <div className="graph-stage">
-     <GraphCanvas ref={scene} nodes={visibleNodes} links={visibleLinks} positions={positions} selected={selected} flat={flat} labels={labels} spinning={spinning} connecting={connecting} onSelect={select} onMove={(id, position) => changeGraph({ ...record.graph, positions: { ...positions, [id]: position } }, 'Entity position saved.')} onContext={context} onActivate={target => target ? edit(target) : addNode()} onConnect={connectTo}/>
+     <GraphCanvas ref={scene} nodes={visibleNodes} links={visibleLinks} positions={positions} selected={selected} flat={flat} labels={labels} spinning={spinning} connecting={connecting} onSelect={select} onMove={(id, position) => changeGraph({ ...record.graph, [positionKey]: { ...savedPositions, [id]: position } }, 'Entity position saved.')} onContext={context} onActivate={target => target ? edit(target) : addNode()} onConnect={connectTo}/>
      <div className="graph-scene-top"><span className="graph-live-dot"/>{flat ? 'PLANAR VIEW' : 'PERSPECTIVE VIEW'}<span className="graph-scene-line"/><span>{visibleLinks.length} connections</span></div>
      {!visibleNodes.length && <div className="graph-empty-state"><div className="graph-empty-icon"><Network size={35} strokeWidth={1}/></div><h2>{allNodes.length ? 'No entities in this view' : 'Every connection starts somewhere'}</h2><button className="primary" onClick={() => allNodes.length ? (setQuery(''), setFilter('All'), hiddenCount && changeGraph({ ...record.graph, hidden: [] }, 'Hidden entities restored.')) : addNode()}>{allNodes.length ? <><Eye size={15}/> Show all entities</> : <><Plus size={15}/> Add your first entity</>}</button></div>}
      {connecting && <div className="graph-connect-banner"><Link2 size={15}/><span>Connecting <b>{nodeName(connecting)}</b> · choose a second entity</span><button aria-label="Cancel connection" onClick={() => setConnecting(null)}><X size={15}/></button></div>}

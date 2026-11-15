@@ -185,7 +185,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                 ctx.font = '600 14px "Segoe UI", sans-serif';
                 const width = ctx.measureText(text).width + 20;
                 const candidates = [{ x: s.x - width / 2, y: s.y + s.radius + 10, width, height: 40 }, { x: s.x - width / 2, y: s.y - s.radius - 50, width, height: 40 }, { x: s.x + s.radius + 10, y: s.y - 20, width, height: 40 }, { x: s.x - s.radius - width - 10, y: s.y - 20, width, height: 40 }];
-                const box = active ? candidates[0] : candidates.find(box => box.x > 2 && box.x + box.width < w - 2 && box.y > 35 && box.y + box.height < h - 35 && !labelBoxes.some(other => overlaps(box, other)) && !touchesNode(box));
+                const owner = s.node.derived && s.node.kind !== 'Person' ? nodes.find(n => n.node.kind === 'Person' && n.node.caseId === s.node.caseId && n.node.personId === s.node.personId) : undefined;
+                if (owner) candidates.sort((a, b) => {
+                    const score = (box: LabelBox) => (box.x + box.width / 2 - s.x) * (s.x - owner.x) + (box.y + box.height / 2 - s.y) * (s.y - owner.y);
+                    return score(b) - score(a);
+                });
+                const box = candidates.find(box => (!owner || (box.x + box.width / 2 - s.x) * (s.x - owner.x) + (box.y + box.height / 2 - s.y) * (s.y - owner.y) >= 0) && box.x > 2 && box.x + box.width < w - 2 && box.y > 35 && box.y + box.height < h - 35 && !labelBoxes.some(other => overlaps(box, other)) && !touchesNode(box));
                 if (box) {
                     nodeLabels.set(s.node.id, { text, box, active: s.node.id === selectedNode });
                     labelBoxes.push(box);
@@ -242,7 +247,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                 if (p.labels || active) {
                     const text = l.label.length > 30 ? l.label.slice(0, 28) + '…' : l.label;
                     ctx.font = '500 12px "Segoe UI", sans-serif';
-                    const tw = ctx.measureText(text).width, candidates = [.5, .38, .62].map(t => { const v = pointOn(edge, t); return { x: v.x - tw / 2 - 7, y: v.y - 10, width: tw + 14, height: 20 }; }), box = active ? candidates[0] : candidates.find(box => !labelBoxes.some(other => overlaps(box, other)) && !touchesNode(box));
+                    const tw = ctx.measureText(text).width, candidates = [.5, .38, .62].map(t => { const v = pointOn(edge, t); return { x: v.x - tw / 2 - 7, y: v.y - 10, width: tw + 14, height: 20 }; }), box = candidates.find(box => !labelBoxes.some(other => overlaps(box, other)) && !touchesNode(box));
                     if (box) {
                         labelBoxes.push(box);
                         ctx.fillStyle = '#101010ed';

@@ -12,7 +12,7 @@ const code = (await build({entryPoints:['src/GraphCanvas.tsx'], bundle:true, for
   }
 }]})).outputFiles[0].text;
 
-function scene(reduced=false, single=false) {
+function scene(reduced=false, single=false, overrides={}) {
   const texts=[], arcs=[], effects=[];
   let frame, paints=0;
   const ctx=new Proxy({measureText:text=>({width:text.length*8}), fillText:(...args)=>texts.push(args), arc:(...args)=>arcs.push(args), clearRect:()=>paints++, createRadialGradient:()=>({addColorStop(){}}), createLinearGradient:()=>({addColorStop(){}})}, {
@@ -22,7 +22,7 @@ function scene(reduced=false, single=false) {
   const context={canvas,effects,window:{matchMedia:()=>({matches:reduced}),devicePixelRatio:1},requestAnimationFrame:fn=>(frame=fn,1),cancelAnimationFrame(){},ResizeObserver:class {constructor(fn){this.fn=fn} observe(){this.fn()} disconnect(){} }};
   vm.createContext(context); vm.runInContext(code,context);
   const ref={}, node={id:'person',kind:'Person',label:'Alex Example',color:'#dedede'}, detail={id:'email',kind:'Email',label:'alex@example.org',color:'#dedede'};
-  const view=context.Graph.default({nodes:single?[node]:[node,detail],links:single?[]:[{id:'link',from:'person',to:'email',label:'Email',confidence:'supported'}],positions:{person:{x:-180,y:0,z:0},email:{x:180,y:0,z:0}},flat:true,labels:true,selected:null,spinning:false},ref);
+  const view=context.Graph.default({nodes:single?[node]:[node,detail],links:single?[]:[{id:'link',from:'person',to:'email',label:'Email',confidence:'supported'}],positions:{person:{x:-180,y:0,z:0},email:{x:180,y:0,z:0}},flat:true,labels:true,selected:null,spinning:false,...overrides},ref);
   const cleanups=effects.map(effect=>effect());
   return {ref,view,texts,arcs,paint:time=>frame(time),paints:()=>paints,close:()=>cleanups.forEach(fn=>fn?.())};
 }
@@ -64,5 +64,21 @@ test('reduced motion renders once at rest and applies camera changes immediately
     assert.equal(s.paints(),2);
     assert.ok(s.arcs.at(-1)[2]<radius);
     s.paint(1400); assert.equal(s.paints(),2);
+  } finally {s.close()}
+});
+
+test('selected detail labels stay outside their person and avoid overlapping node labels',()=>{
+  const s=scene(true,false,{
+    nodes:[{id:'person',kind:'Person',personId:'p',caseId:'c',label:'Alex Example',color:'#dedede'},{id:'email',kind:'Email',personId:'p',caseId:'c',derived:true,label:'alex@example.org',color:'#dedede'}],
+    selected:{kind:'node',id:'email'},
+    positions:{person:{x:-120,y:0,z:0},email:{x:120,y:0,z:0}},
+  });
+  try {
+    s.paint(1000);
+    const person=s.texts.find(([text])=>text==='PE'), detail=s.texts.find(([text])=>text==='EM');
+    const label=s.texts.find(([text])=>text==='alex@example.org');
+    assert.ok(label); assert.ok(label[1]>detail[1]); assert.ok(detail[1]>person[1]);
+    const name=s.texts.find(([text])=>text==='Alex Example');
+    if(name) assert.ok(Math.abs(label[2]-name[2])>=40||Math.abs(label[1]-name[1])>(label[0].length+name[0].length)*4+20);
   } finally {s.close()}
 });

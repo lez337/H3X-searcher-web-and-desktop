@@ -112,3 +112,33 @@ test('single EXE without published hashes downloads and detects later modificati
   await assert.rejects(()=>handlers.get('updates:install')(),/Update file changed/);
  } finally {events.get('will-quit')?.();await fs.rm(root,{recursive:true,force:true})}
 });
+
+test('startup automatically checks versions and downloads only newer releases unless disabled', {skip:process.platform!=='win32'||process.arch!=='x64'}, async t => {
+ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'h3x-update-auto-'));
+ const timeout=setTimeout;let first;
+ t.mock.method(global,'setTimeout',(callback,delay,...args)=>{
+  if(delay===30000){first=callback;return {unref(){}}}
+  return timeout(callback,delay,...args);
+ });
+ try {
+  for(const [current,enabled,expected,downloads] of [['0.1.0',true,'ready',1],['0.2.0',true,'idle',0],['0.3.0',true,'idle',0],['0.1.0',false,'idle',0]]){
+   await fs.writeFile(path.join(root,'updates.json'),JSON.stringify({repository:'owner/repo',enabled}));
+   const handlers=new Map(),events=new Map(),requests=[];let initialized;
+   const loaded=new Promise(resolve=>{initialized=resolve});
+   const app={isPackaged:true,getVersion:()=>current,getPath:()=>root,once:(name,fn)=>{events.set(name,fn);initialized()}};
+   setupUpdates({app,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},net:{fetch:async address=>{
+    requests.push(address);
+    if(address.includes('api.github.com'))return Response.json({tag_name:'v0.2.0',assets:[{name,browser_download_url:url(name),size:4}]});
+    return new Response('test');
+   }}});
+   await loaded;
+   try {
+    await first();
+    assert.equal(handlers.get('updates:status')().phase,expected);
+    assert.equal(requests.filter(address=>address===url(name)).length,downloads);
+    assert.equal(requests.length,enabled?1+downloads:0);
+   } finally {events.get('will-quit')()}
+  }
+ } finally {await fs.rm(root,{recursive:true,force:true})}
+});

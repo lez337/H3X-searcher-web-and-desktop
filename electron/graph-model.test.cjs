@@ -79,3 +79,27 @@ test('person details toggle independently with stable nodes for a single-person 
  assert.equal(expandedPersonNodes(nodes,new Set()).length,1);
  assert.equal(data.cases[0].people[0].email,'alex@example.org');
 });
+
+test('details expand away from the investigation center with depth only in 3D',()=>{
+ const {layoutPeople}=require('../src/graphModel.ts');
+ const {nodes,links}=investigationView(record,'case1');
+ const parent=nodes.find(n=>n.kind==='Person');
+ const saved={case1:{x:0,y:0,z:0},[parent.id]:{x:700,y:0,z:0}};
+ const details=nodes.filter(n=>n.derived&&n.kind!=='Person'&&n.personId===parent.personId);
+ saved[details[0].id]={x:100,y:0,z:0};
+ const before=JSON.stringify(saved), planar=layoutPeople(nodes,links,true,saved), spatial=layoutPeople(nodes,links,false,saved);
+ for(const positions of [planar,spatial]) {
+  const core=nodes.filter(n=>!n.derived||n.kind==='Person');
+  const center=core.reduce((s,n)=>({x:s.x+positions[n.id].x/core.length,y:s.y+positions[n.id].y/core.length}),{x:0,y:0});
+  for(const d of details) {
+   const p=positions[parent.id], q=positions[d.id];
+   assert.ok((q.x-p.x)*(p.x-center.x)+(q.y-p.y)*(p.y-center.y)>0);
+  }
+ }
+ assert.ok(Object.values(planar).every(p=>p.z===0));
+ assert.ok(details.some(d=>Math.abs(spatial[d.id].z-spatial[parent.id].z)>100));
+ assert.equal(JSON.stringify(saved),before);
+ assert.deepEqual(layoutPeople([],[],true),{});
+ const manual={...saved,[details[0].id]:{x:1500,y:0,z:0}};
+ assert.deepEqual(layoutPeople(nodes,links,true,manual)[details[0].id],manual[details[0].id]);
+});
