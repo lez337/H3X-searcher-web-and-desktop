@@ -2,6 +2,7 @@ import {investigation} from './shared.js';
 import {loadWorkspace,saveWorkspace,read,log,accountId} from './storage';
 import {download,pickFiles} from './files';
 import {presentHostedReport,cancelHostedReportDialog} from './share-events';
+import {readableLogs,trackActivity} from '../activity';
 type Listener=(value:any)=>void;
 const listeners={username:new Set<Listener>(),deep:new Set<Listener>(),file:new Set<Listener>()};
 const subscribe=(kind:keyof typeof listeners,callback:Listener)=>{listeners[kind].add(callback);return()=>{listeners[kind].delete(callback)}};
@@ -10,11 +11,11 @@ const runs=new Map<string,AbortController>();
 export function clearSessionKeys(){window.h3xDesktop?.resetSession().catch(()=>{});cancelHostedReportDialog();for(const controller of runs.values())controller.abort();usernameController?.abort();fileWorker?.terminate();fileWorker=undefined;fileResolve?.({canceled:true});fileResolve=undefined;}
 export async function requestJson(path:string,body?:any){
   const response=await fetch(path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(accountId()?{'X-H3X-Account':accountId()!}:{})},body:body===undefined?undefined:JSON.stringify(body)});
-  const value=await response.json();if(!response.ok){if(response.status===401&&path!=='/api/login')window.dispatchEvent(new Event('h3x-auth-required'));throw Error(value.error||'Request failed.')}return value;
+  const value=await response.json();if(!response.ok){if(response.status===401&&path!=='/api/login')window.dispatchEvent(new Event('h3x-auth-required'));throw Object.assign(Error(value.error||'Request failed.'),{status:response.status})}return value;
 }
 async function rpc(action:string,payload:any={},signal?:AbortSignal,onEvent?:(type:string,data:any)=>void){
   const response=await fetch('/api/rpc',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(accountId()?{'X-H3X-Account':accountId()!}:{})},body:JSON.stringify({action,payload}),signal});
-  if(!response.ok){const error=await response.json();if(response.status===401)window.dispatchEvent(new Event('h3x-auth-required'));throw Error(error.error||'Request failed.')}
+  if(!response.ok){const error=await response.json();if(response.status===401)window.dispatchEvent(new Event('h3x-auth-required'));throw Object.assign(Error(error.error||'Request failed.'),{status:response.status})}
   if(!response.headers.get('content-type')?.includes('ndjson'))return response.json();
   const reader=response.body!.getReader(),decoder=new TextDecoder();let buffer='',result:any,received=false;
   const handle=(line:string)=>{if(!line.trim())return;const event=JSON.parse(line);if(event.type==='error')throw Error(event.data.message);if(event.type==='result'){result=event.data;received=true}else onEvent?.(event.type,event.data)};
@@ -68,7 +69,6 @@ async function searchBatch(payload:any){
         catch(error){status.push({id:provider,label:provider,status:'error',count:0,message:(error as Error).message})}
       }
     }
-    await log('Search completed',`${items.length} records`);
   }catch(error){items.push(...pendingItems.values());if(!controller.signal.aborted){if(!items.length)throw error;notices.push((error as Error).message)}}
   finally{runs.delete(payload.runId)}
   return {query:payload.query,items,meta:{...meta,canceled:controller.signal.aborted,providerStatus:status,usernameRun},notice:controller.signal.aborted?'Search stopped; completed results retained.':notices.join(' · ')};
@@ -122,7 +122,7 @@ export const bridge:Window['h3x']={
   load:loadWorkspace,save:saveWorkspace,
   credentials:()=>requestJson('/api/account/credentials'),
   setCredential:async(name,value)=>{if(typeof value!=='string'||value.length>1024||/[\r\n\x00]/.test(value))throw Error('Invalid API key.');await requestJson('/api/account/credentials',{name,value:value.trim()});return true},
-  logs:async()=>await read('logs')||[],exportLogs:async()=>download((await read('logs')||[]).map((entry:any)=>JSON.stringify(entry)).join('\n'),'H3X-activity.jsonl'),
+  logs:async()=>await read('logs')||[],exportLogs:async()=>download(readableLogs(await read('logs')||[]),'H3X-activity.txt'),
   prepareEvidence:async p=>investigation.prepare(p.fields,p.excluded,p.current),
   importCase:async({excluded}={})=>{const [file]=await pickFiles('.txt,.json');if(!file)return null;if(file.size>8*1024*1024)throw Error('Import exceeds 8 MB.');const text=(await file.text()).replace(/^\uFEFF/,'');if(file.name.toLowerCase().endsWith('.json')){const value=JSON.parse(text);return Array.isArray(value.people)?{record:value}:{fields:investigation.clean(value,excluded)}}return investigation.parseText(text,excluded)},
   exportCase:async({record,excluded,format='txt'})=>{
@@ -150,4 +150,24 @@ export const bridge:Window['h3x']={
   updateStatus:async()=>window.h3xDesktop?window.h3xDesktop.updateStatus():({phase:'idle',message:'Reload H3X to use the latest deployed version.',version:'0.3.1 Web',supported:false,repository:'',enabled:false,progress:0}),
   configureUpdates:async value=>window.h3xDesktop?window.h3xDesktop.configureUpdates(value):desktop(),checkUpdates:async()=>window.h3xDesktop?window.h3xDesktop.checkUpdates():desktop(),installUpdate:async()=>window.h3xDesktop?window.h3xDesktop.installUpdate():desktop()
 };
+const activityActions:Partial<Record<keyof Window['h3x'],[string,string]>>={
+ save:['Workspace save','workspace'],setCredential:['API key update','account'],
+ importCase:['Investigation import','investigations'],exportCase:['Investigation export','investigations'],exportSearch:['Results export','search'],
+ searchBatch:['Search','search'],search:['Provider search','search'],cancelSearch:['Stop search','search'],
+ deepSearch:['Deep search','search'],cancelDeepSearch:['Stop deep search','search'],
+ scanUsername:['Username scan','username'],cancelUsernameScan:['Stop username scan','username'],
+ scanFile:['File scan','files'],cancelFileScan:['Stop file scan','files'],geocode:['Location lookup','map'],
+ openExternal:['Open external link','workspace'],clipboard:['Copy to clipboard','workspace'],
+ telegram:['Telegram operation','integrations'],stealerTree:['Stealer tree lookup','search'],runGhunt:['GHunt search','integrations'],
+ configureUpdates:['Update settings','updates'],checkUpdates:['Update check','updates'],installUpdate:['Update installation','updates']
+};
+for(const [key,[label,scope]] of Object.entries(activityActions)){
+ const name=key as keyof Window['h3x'],run=bridge[name] as (...args:any[])=>Promise<any>;
+ Object.assign(bridge,{[name]:(...args:any[])=>{
+  const id=accountId();
+  return trackActivity(label,scope,()=>run(...args),(event,detail,level,source,duration)=>{
+   if(id&&accountId()===id)void log(event,detail,level,source,duration).catch(()=>{});
+  });
+ }});
+}
 window.h3x=bridge;

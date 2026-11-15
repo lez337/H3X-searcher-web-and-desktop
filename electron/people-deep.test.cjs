@@ -150,6 +150,7 @@ test('reviewed edits and deletions survive evidence mapping and the investigatio
 test('Oath batches use one session per identifier and paginate with explicit filters',async()=>{
  const calls=[],filter={field:'email',operator:'eq',value:'alex@example.org'};
  const result=await oathBulk({terms:[' alex@example.org ','Alex Example','alex@example.org'],filters:{filter,country:['FR'],city:[]},options:{sort:'-indexed_at',search_id:'stale',cursor:'stale'}},'batch-key',{fetcher:async(url,options)=>{
+  assert.equal(options.redirect,'manual');
   calls.push({url,options});
   if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_'+JSON.parse(options.body).query}}});
   const params=new URL(url).searchParams;
@@ -172,7 +173,7 @@ test('session batches cap records, reject repeated cursors and preserve cancella
 });
 
 test('session batches reject provider failures and oversized responses',async()=>{
- for(const status of [400,401,403,429,500])await assert.rejects(oathBulk({terms:['error'],filters:{}},'error-key',{fetcher:async url=>url.endsWith('/search/init')?Response.json({data:{session:{id:'sess_error'}}}):Response.json({message:'Rejected error-key'},{status})}),new RegExp('HTTP '+status));
+ for(const status of [301,302,303,307,308,400,401,403,429,500])await assert.rejects(oathBulk({terms:['error'],filters:{}},'error-key',{fetcher:async url=>url.endsWith('/search/init')?Response.json({data:{session:{id:'sess_error'}}}):Response.json({message:'Rejected error-key'},{status})}),new RegExp('HTTP '+status));
  await assert.rejects(oathBulk({terms:['error'],filters:{}},'error-key',{fetcher:async()=>({ok:true,headers:{get:()=>String(9000000)}})}),/8 MB/);
 });
 

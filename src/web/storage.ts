@@ -81,9 +81,10 @@ export async function saveWorkspace(state:any){
   });session.queue=task;return task;
 }
 let pendingLog=Promise.resolve();
-export function log(action:string,detail='',level='info'){
+export function log(action:string,detail='',level='info',scope='web',durationMs?:number){
   const key=active?.id+':logs';
+  const entry={id:crypto.randomUUID(),time:new Date().toISOString(),event:action,detail,scope,level,durationMs};
   pendingLog=pendingLog.catch(()=>{}).then(async()=>{if(!active||key!==active.id+':logs')return;const entries=await localRead(key)||[];
-    await localWrite(key,[...entries,{id:crypto.randomUUID(),time:new Date().toISOString(),event:action,detail,scope:'web',level}].slice(-500));
+    await localWrite(key,[...entries,entry].slice(-500));
   });return pendingLog;
 }

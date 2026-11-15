@@ -10,7 +10,7 @@ async function oathSession(query,key,{signal,request=fetch,now=Date.now}={}){
  if(sessions.has(id))return sessions.get(id).promise;
  const entry={expires:now()+59*60*1000};
  entry.promise=(async()=>{
-  const response=await request('https://oathnet.org/api/service/search/init',{method:'POST',redirect:'error',headers:{'x-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({query}),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});
+  const response=await request('https://oathnet.org/api/service/search/init',{method:'POST',redirect:'manual',headers:{'x-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({query}),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});
   if(!response.ok)throw Error(`OathNet session initialization failed (HTTP ${response.status}).`);
   let body;try{body=await response.json()}catch{throw Error('OathNet returned an invalid search session.');}
   const session=body.data?.session;

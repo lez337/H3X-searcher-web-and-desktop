@@ -2,6 +2,19 @@ $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'H3X-Setup.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
+$find=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Find-Installation'},$true)
+function Get-ItemProperty {param($Path,$ErrorAction) $script:registryEntry}
+foreach($folder in @('C:\H3X','C:\Users\You\AppData\Local\Programs\H3X Searcher')){
+    $script:registryEntry=[pscustomobject]@{DisplayName='H3X Searcher';UninstallString='"'+$folder+'\Uninstall H3X Searcher.exe" /currentuser'}
+    $found=& $find.Body.GetScriptBlock()
+    if($found.InstallLocation -ne $folder){throw 'Electron uninstall entry must resolve the app folder.'}
+}
+$script:registryEntry=[pscustomobject]@{DisplayName='H3X Searcher';InstallLocation='C:\Existing';UninstallString='"C:\Other\Uninstall.exe"'}
+if((& $find.Body.GetScriptBlock()).InstallLocation -ne 'C:\Existing'){throw 'Existing InstallLocation must be preserved.'}
+$script:registryEntry=$null
+if($null -ne (& $find.Body.GetScriptBlock())){throw 'Missing installation must return null.'}
+Remove-Item Function:Get-ItemProperty
+Write-Output 'PASS: Electron installation folder detection'
 $refresh=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Refresh-Installation'},$true)
 foreach($name in @('installed','subtitle','primary','uninstall','status','location')){Set-Variable -Name $name -Value ([pscustomobject]@{Text='';Enabled=$false})}
 $script:entry=[pscustomobject]@{DisplayVersion='0.3.3';InstallLocation='C:\H3X'}
@@ -29,7 +42,12 @@ function New-Release {
         @{name='SHA256SUMS.txt';browser_download_url=$base+'SHA256SUMS.txt'}
     )}
 }
-function Invoke-RestMethod {param($Uri,$Headers,$TimeoutSec) return $script:testRelease}
+function Invoke-RestMethod {
+    param($Uri,$Headers,$TimeoutSec)
+    $script:requests+=@($Uri)
+    if($Uri.EndsWith('/latest') -and $script:latestRelease){return $script:latestRelease}
+    return $script:testRelease
+}
 function Invoke-WebRequest {
     param($Uri,$OutFile,$TimeoutSec,[switch]$UseBasicParsing)
     if($Uri.EndsWith('SHA256SUMS.txt')){[IO.File]::WriteAllText($OutFile,$script:checks)}
@@ -39,10 +57,11 @@ function Start-Process {param($FilePath,$ArgumentList,[switch]$PassThru,[switch]
     if($ArgumentList -ne '/S' -or $WindowStyle -ne 'Hidden'){throw 'Installer must run silently.'}
     $script:launches++;[pscustomobject]@{ExitCode=0}
 }
-function Check([string]$label,[scriptblock]$change,[bool]$valid,[string]$mode='verify'){
+function Check([string]$label,[scriptblock]$change,[bool]$valid,[string]$mode='verify',[string]$minimumVersion='0.2.3'){
     $script:testRelease=New-Release;$script:checks="$hash  $name`n";$script:launches=0
+    $script:latestRelease=$null;$script:requests=@()
     & $change
-    $results=@(& $worker $mode 'lez337/H3X-searcher-web-and-desktop' '')
+    $results=@(& $worker $mode 'lez337/H3X-searcher-web-and-desktop' '' $minimumVersion)
     $failed=@($results|Where-Object {$_.failed}).Count -gt 0
     if($failed -eq $valid){throw "$label returned the wrong result: $($results|ConvertTo-Json -Compress)"}
     if($valid -and $mode -eq 'verify' -and !($results|Where-Object {$_.verified})){throw "$label did not verify the download."}
@@ -52,6 +71,10 @@ function Check([string]$label,[scriptblock]$change,[bool]$valid,[string]$mode='v
 }
 Check 'valid download without installation' {} $true
 Check 'verified silent installation' {} $true 'install'
+Check 'stale latest release falls back to setup version' {$script:latestRelease=New-Release;$script:latestRelease.tag_name='v0.2.1'} $true
+if($script:requests[-1] -notlike '*/releases/tags/v0.2.3'){throw 'Stale latest release must request the setup version tag.'}
+Check 'newer stable release stays eligible' {} $true 'verify' '0.2.2'
+Check 'older release cannot downgrade setup' {} $false 'install' '0.2.4'
 Check 'checksum mismatch' {$script:checks=('0'*64)+"  $name`n"} $false
 Check 'wrong checksum filename' {$script:checks="$hash  wrong.exe`n"} $false
 Check 'size mismatch' {$script:testRelease.assets[0].size++} $false

@@ -6,7 +6,7 @@ const {searchProfile}=require('./oath-profiles.cjs');
 test('sessions reuse concurrent requests, isolate keys and queries, and expire',async()=>{
  let calls=0,time=1000;
  const options={now:()=>time,request:async(url,options)=>{
-  calls++;assert.equal(url,'https://oathnet.org/api/service/search/init');assert.equal(options.method,'POST');
+  calls++;assert.equal(url,'https://oathnet.org/api/service/search/init');assert.equal(options.method,'POST');assert.equal(options.redirect,'manual');
   assert.deepEqual(Object.keys(JSON.parse(options.body)),['query']);
   return Response.json({data:{session:{id:'sess_'+calls,expires_at:new Date(time+60000).toISOString()}}});
  }};
@@ -18,7 +18,7 @@ test('sessions reuse concurrent requests, isolate keys and queries, and expire',
 test('failed or malformed session initialization never starts a dataset search',async()=>{
  const old=global.fetch;
  try{
-  for(const response of [()=>Response.json({success:false}),()=>Response.json({data:{session:{id:''}}}),()=>new Response('{}',{status:429})]){
+  for(const response of [()=>Response.json({success:false}),()=>Response.json({data:{session:{id:''}}}),()=>new Response('{}',{status:429}),()=>Response.redirect('https://example.org/',302)]){
    let calls=0;global.fetch=async url=>{calls++;assert.ok(url.endsWith('/search/init'));return response()};
    await assert.rejects(searchOath({query:'failed',settings:{oathFamily:'stealer'}},'failure-key'),/session/);assert.equal(calls,1);
   }

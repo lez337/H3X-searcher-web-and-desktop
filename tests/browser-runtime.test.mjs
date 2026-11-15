@@ -31,7 +31,7 @@ test('Browser ZIP worker bounds decompression rather than trusting compressed si
 });
 
 const bridgeCode=(await build({entryPoints:['src/web/bridge.ts'],bundle:true,format:'esm',platform:'browser',write:false,plugins:[{
-  name:'test-local-storage',setup(b){b.onResolve({filter:/^\.\/storage$/},()=>({path:'storage',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`export const loadWorkspace=async()=>({settings:{}}), saveWorkspace=async()=>true,read=async()=>[],log=async()=>{},accountId=()=>undefined;`}))}
+  name:'test-local-storage',setup(b){b.onResolve({filter:/^\.\/storage$/},()=>({path:'storage',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`export const loadWorkspace=async()=>({settings:{}}), saveWorkspace=async()=>true,read=async()=>[],log=async(...entry)=>globalThis.activityEntries?.push(entry),accountId=()=>globalThis.activityAccount;`}))}
 }]})).outputFiles[0].text;
 globalThis.window=new EventTarget();
 const {bridge,clearSessionKeys}=await import('data:text/javascript;base64,'+Buffer.from(bridgeCode).toString('base64'));
@@ -85,4 +85,28 @@ test('Leaving the workspace cancels an unfinished sharing dialog',async()=>{
   window.addEventListener('h3x-report-created',onCreated);
   globalThis.fetch=async()=>Response.json({id:'00000000-0000-4000-8000-000000000002',code:'1234',url:'https://h3x.example/reports/00000000-0000-4000-8000-000000000002',active:false});
   try{const exporting=bridge.exportCase({record:{title:'Fixture',people:[]},format:'html'});await shown;clearSessionKeys();assert.equal(await exporting,false)}finally{window.removeEventListener('h3x-report-created',onCreated);globalThis.fetch=original}
+});
+
+test('Bridge logs actions without credential payloads and reports safe HTTP failures',async()=>{
+ const original=globalThis.fetch;globalThis.activityAccount='fixture-account';globalThis.activityEntries=[];
+ try{
+  globalThis.fetch=async()=>Response.json({});
+  await bridge.setCredential('oathnet','private-key');
+  assert.deepEqual(activityEntries.map(entry=>entry[0]),['API key update started','API key update completed']);
+  assert.doesNotMatch(JSON.stringify(activityEntries),/private-key/);
+  globalThis.fetch=async()=>Response.json({error:'Bearer private-key'},{status:429});
+  await assert.rejects(()=>bridge.search({provider:'github',query:'private-query'}),/private-key/);
+  assert.equal(activityEntries.at(-1)[0],'Provider search failed');assert.match(activityEntries.at(-1)[1],/rate limit/);
+  assert.doesNotMatch(JSON.stringify(activityEntries),/private-key|private-query/);
+ }finally{globalThis.fetch=original;delete globalThis.activityAccount;delete globalThis.activityEntries}
+});
+
+test('Bridge does not write a previous account operation into the next account history',async()=>{
+ const original=globalThis.fetch;globalThis.activityAccount='first';globalThis.activityEntries=[];let release;
+ globalThis.fetch=()=>new Promise(resolve=>{release=()=>resolve(Response.json({items:[]}))});
+ try{
+  const running=bridge.search({provider:'github',query:'fixture'});
+  globalThis.activityAccount='second';release();await running;
+  assert.deepEqual(activityEntries.map(entry=>entry[0]),['Provider search started']);
+ }finally{globalThis.fetch=original;delete globalThis.activityAccount;delete globalThis.activityEntries}
 });

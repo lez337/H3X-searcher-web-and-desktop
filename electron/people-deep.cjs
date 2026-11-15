@@ -49,7 +49,7 @@ async function oathBulk(task,key,{signal,progress,fetcher=fetch,now=Date.now}={}
  }
  async function request(url,options={}){
   signal?.throwIfAborted();
-  const response=await fetcher(url,{...options,headers,redirect:'error',signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(25000)])});
+  const response=await fetcher(url,{...options,headers,redirect:'manual',signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(25000)])});
   if(!response.ok){
    let detail='';try{detail=reason(JSON.parse(await boundedText(response)))}catch{}
    const error=Error(`OathNet request failed (HTTP ${response.status})${detail?': '+detail:'.'}`);error.status=response.status;throw error;

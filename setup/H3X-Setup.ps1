@@ -13,7 +13,12 @@ if (Test-Path -LiteralPath $configPath) {
 if(!$Repository){$Repository='lez337/H3X-searcher-web-and-desktop'}
 function Find-Installation {
     $keys = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')
-    Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'H3X Searcher' } | Select-Object -First 1
+    $entry=Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'H3X Searcher' } | Select-Object -First 1
+    # Electron stores InstallLocation outside the uninstall key; its uninstaller lives beside the app.
+    if($entry -and !$entry.InstallLocation -and $entry.UninstallString -match '^\s*"([^\"]+\.exe)"'){
+        $entry | Add-Member -NotePropertyName InstallLocation -NotePropertyValue (Split-Path -Path $matches[1] -Parent) -Force
+    }
+    return $entry
 }
 $script:entry = Find-Installation
 if ($PreviewInstalled) { $script:entry = [pscustomobject]@{ DisplayVersion=$version; InstallLocation='C:\Users\You\AppData\Local\Programs\H3X Searcher' } }
@@ -123,7 +128,7 @@ function Refresh-Installation {
 Refresh-Installation
 # Keep network and installation work off the UI thread.
 $worker={
-    param($mode,$repo,$command)
+    param($mode,$repo,$command,$minimumVersion)
     $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
     [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
     $folder=$null
@@ -142,9 +147,13 @@ $worker={
             if($repo -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$'){throw 'Enter your GitHub repository as owner/name.'}
             Report 'Checking the latest release...' 5
             $release=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers @{'User-Agent'='H3X-Setup';'Accept'='application/vnd.github+json'} -TimeoutSec 30
+            if($minimumVersion -and [string]$release.tag_name -match '^v?(\d+\.\d+\.\d+)$' -and [version]$matches[1] -lt [version]$minimumVersion){
+                $release=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/v$minimumVersion" -Headers @{'User-Agent'='H3X-Setup';'Accept'='application/vnd.github+json'} -TimeoutSec 30
+            }
             if($release.draft -or $release.prerelease){throw 'Setup requires a published stable release.'}
             $tag=[string]$release.tag_name
             if($tag -notmatch '^v?(\d+\.\d+\.\d+)$'){throw 'The latest release needs a stable version tag.'}
+            if($minimumVersion -and [version]$matches[1] -lt [version]$minimumVersion){throw "Release is older than setup $minimumVersion. Nothing was installed."}
             $name="H3X-Searcher-Setup-$($matches[1])-x64.exe"
             $asset=$release.assets|Where-Object {$_.name -eq $name}|Select-Object -First 1
             $single=$release.assets|Where-Object {$_.name -eq 'H3X-Setup.exe'}|Select-Object -First 1
@@ -197,7 +206,7 @@ $worker={
 }
 if($VerifyDownload){
     try{
-        $results=@(& $worker 'verify' $Repository '')
+        $results=@(& $worker 'verify' $Repository '' $version)
         $verified=$results|Where-Object {$_.verified}|Select-Object -Last 1
         if(!$verified){throw ($results|Select-Object -Last 1).message}
         if(!$VerificationPath){throw 'A verification report path is required.'}
@@ -216,11 +225,12 @@ function Start-SetupJob([string]$mode){
     $command=if($script:entry.QuietUninstallString){$script:entry.QuietUninstallString}else{$script:entry.UninstallString}
     $primary.Enabled=$false;$uninstall.Enabled=$false;$repoBox.Enabled=$false;$close.Enabled=$false
     $fill.Width=0;$status.Text='Preparing...';$details.Text='Please keep setup open until this finishes.'
-    $script:job=Start-Job -ScriptBlock $worker -ArgumentList $mode,$repo,$command
+    $script:job=Start-Job -ScriptBlock $worker -ArgumentList $mode,$repo,$command,$version
 }
 $primary.Add_Click({
     if($script:ready){
         try{
+            if(!$script:entry.InstallLocation){throw 'H3X installation folder was not found. Run setup again to repair the installation.'}
             $exe=Join-Path $script:entry.InstallLocation 'H3X Searcher.exe'
             if(!(Test-Path -LiteralPath $exe)){throw 'H3X was not found. Run setup again to repair the installation.'}
             Start-Process -FilePath $exe -WorkingDirectory $script:entry.InstallLocation
