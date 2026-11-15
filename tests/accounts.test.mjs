@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../dist/server/index.js';
+import worker,{InvestigationReport} from '../dist/server/index.js';
 import {generateAccountKey,accountName} from '../worker/accounts.mjs';
 import {accountEnvironment,fixtureCookie,fixtureName,fixtureKey} from './fixtures/account-session.mjs';
 import {blank} from '../src/web/state.mjs';
@@ -61,6 +61,75 @@ test('Incorrect current codes are rate limited before key rotation',async()=>{
   const env=accountEnvironment();
   for(let i=0;i<5;i++)assert.equal((await call(env,'/api/account/key',{cookie:fixtureCookie,body:{currentKey:'00000000'}})).status,400);
   assert.equal((await call(env,'/api/account/key',{cookie:fixtureCookie,body:{currentKey:fixtureKey}})).status,429);
+});
+
+function reportEnvironment(){
+  const env=accountEnvironment(),contexts=accountEnvironment().H3X_ACCOUNTS;
+  env.INVESTIGATION_REPORTS={idFromName:id=>id,context:contexts.context,get:id=>({fetch:request=>new InvestigationReport(contexts.context(id),env).fetch(request)})};
+  return env;
+}
+test('Account deletion requires a session and current key and rate limits incorrect keys',async()=>{
+  const env=accountEnvironment();
+  assert.equal((await call(env,'/api/account/delete',{body:{currentKey:fixtureKey}})).status,401);
+  assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie})).status,405);
+  assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie,body:{currentKey:fixtureKey},headers:{Origin:'https://other.example'}})).status,403);
+  assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie,body:{currentKey:fixtureKey},headers:{'X-H3X-Account':'other'}})).status,401);
+  for(const currentKey of [undefined,12345678,'123'])assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie,body:{currentKey}})).status,400);
+  for(let i=0;i<5;i++)assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie,body:{currentKey:'00000000'}})).status,400);
+  assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie,body:{currentKey:fixtureKey}})).status,429);
+  assert.equal((await call(env,'/api/workspace',{cookie:fixtureCookie})).status,200);
+});
+test('Deletion erases workspace, credentials, API access, sessions and every owned report, preserving other accounts',async()=>{
+  const env=reportEnvironment(),other=await create(env,'OtherOwner'),otherCookie=await login(env,other),cookie=fixtureCookie;
+  const state=blank();state.cases=[{id:'delete',title:'Delete me',people:[]}];
+  await call(env,'/api/workspace',{cookie,body:{state,revision:0}});
+  await call(env,'/api/account/credentials',{cookie,body:{name:'oathnet',value:'synthetic-secret'}});
+  const apiKey=(await (await call(env,'/api/account/api-key',{cookie,body:{action:'create'}})).json()).key;
+  const reports=[];
+  for(const access of ['public','protected','pending','expired']){
+    const response=await call(env,'/api/reports',{cookie,body:{record:state.cases[0]}});assert.equal(response.status,201);
+    const report=await response.json();reports.push(report);
+    if(['public','protected'].includes(access))await call(env,`/api/reports/${report.id}/activate`,{cookie,body:{access,savedKey:true}});
+    if(access==='expired'){
+      const storage=env.INVESTIGATION_REPORTS.context(report.id).storage,meta=await storage.get('meta');meta.pendingUntil=0;await storage.put('meta',meta);
+    }
+  }
+  const unrelated=await (await call(env,'/api/reports',{cookie:otherCookie,body:{record:state.cases[0]}})).json();
+  const response=await call(env,'/api/account/delete',{cookie,body:{currentKey:fixtureKey}});
+  assert.equal(response.status,200);assert.match(response.headers.get('set-cookie'),/Max-Age=0/);
+  const storage=env.H3X_ACCOUNTS.context(accountName(fixtureName).id).storage;
+  for(const key of ['account','workspace','state:0','credential:oathnet','reports','attempts'])assert.equal(await storage.get(key),undefined);
+  for(const report of reports)for(const key of ['meta','html:0'])assert.equal(await env.INVESTIGATION_REPORTS.context(report.id).storage.get(key),undefined);
+  assert.equal((await call(env,'/api/workspace',{cookie})).status,401);
+  assert.equal((await call(env,'/api/workspace',{cookie:otherCookie})).status,200);
+  assert.ok(await env.INVESTIGATION_REPORTS.context(unrelated.id).storage.get('meta'));
+  assert.equal((await call(env,'/api/v1/discord/search',{body:{query:'fixture'},headers:{Authorization:'Bearer '+apiKey}})).status,401);
+  assert.equal((await call(env,'/api/login',{body:{name:fixtureName,key:fixtureKey}})).status,401);
+  assert.equal((await call(env,'/api/accounts',{body:{name:fixtureName}})).status,201);
+});
+test('Failed report cleanup keeps the account available to retry deletion',async()=>{
+  const env=reportEnvironment(),cookie=fixtureCookie;
+  const report=await (await call(env,'/api/reports',{cookie,body:{record:{title:'Retry',people:[]}}})).json();
+  const get=env.INVESTIGATION_REPORTS.get;
+  env.INVESTIGATION_REPORTS.get=()=>({fetch:async()=>new Response('',{status:503})});
+  assert.equal((await call(env,'/api/account/delete',{cookie,body:{currentKey:fixtureKey}})).status,503);
+  assert.equal((await call(env,'/api/workspace',{cookie})).status,200);
+  env.INVESTIGATION_REPORTS.get=get;
+  assert.equal((await call(env,'/api/account/delete',{cookie,body:{currentKey:fixtureKey}})).status,200);
+  assert.equal(await env.INVESTIGATION_REPORTS.context(report.id).storage.get('meta'),undefined);
+});
+test('A report created during account deletion is cleaned up when indexing loses its session',async()=>{
+  const env=reportEnvironment(),get=env.INVESTIGATION_REPORTS.get;let reportId;
+  env.INVESTIGATION_REPORTS.get=id=>({fetch:async request=>{
+    const response=await get(id).fetch(request);
+    if(new URL(request.url).pathname==='/create'){
+      reportId=id;
+      assert.equal((await call(env,'/api/account/delete',{cookie:fixtureCookie,body:{currentKey:fixtureKey}})).status,200);
+    }
+    return response;
+  }});
+  assert.equal((await call(env,'/api/reports',{cookie:fixtureCookie,body:{record:{title:'Concurrent',people:[]}}})).status,401);
+  assert.equal(await env.INVESTIGATION_REPORTS.context(reportId).storage.get('meta'),undefined);
 });
 test('Investigations persist across login sessions, Worker requests, and logout',async()=>{
   const env=accountEnvironment(),created=await create(env),cookie=await login(env,created),state=blank();

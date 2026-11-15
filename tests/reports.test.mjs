@@ -130,6 +130,38 @@ test('Public access requires explicit owner selection and cannot weaken an exist
   assert.deepEqual(await (await call(env,`/api/reports/${report.id}/access`,{method:'GET'})).json(),{public:false});
   assert.equal((await call(env,`/api/reports/${report.id}/content`,{method:'GET'})).status,401);
 });
+
+test('Making a public link private keeps its URL and requires a newly generated code',async()=>{
+  const env=environment(),report=await create(env);
+  await call(env,`/api/reports/${report.id}/activate`,{owner:true,body:{access:'public'}});
+  const meta=env.INVESTIGATION_REPORTS.states.get(report.id).data.get('meta');
+  const oldToken='x'.repeat(43);meta.sessions=[{hash:createHash('sha256').update(oldToken).digest('hex'),expires:Date.now()+3600000}];
+  meta.failed=5;meta.lockedUntil=Date.now()+3600000;
+  const response=await call(env,`/api/reports/${report.id}/privatize`,{owner:true});
+  assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/);
+  const result=await response.json();assert.equal(result.id,report.id);assert.equal(result.public,false);assert.match(result.code,/^\d{4}$/);
+  assert.deepEqual(await (await call(env,`/api/reports/${report.id}/access`,{method:'GET'})).json(),{public:false});
+  for(const cookie of [undefined,`h3x_report=${oldToken}`])assert.equal((await call(env,`/api/reports/${report.id}/content`,{method:'GET',cookie})).status,401);
+  const stored=env.INVESTIGATION_REPORTS.states.get(report.id).data.get('meta');assert.ok(stored.salt);assert.notEqual(stored.codeHash,result.code);assert.equal(stored.code,undefined);
+  const opened=await unlock(env,report,result.code);assert.equal(opened.status,200);
+  const cookie=opened.headers.get('set-cookie').split(';')[0];
+  assert.equal((await call(env,`/api/reports/${report.id}/content`,{method:'GET',cookie})).status,200);
+  assert.deepEqual(await (await call(env,`/api/reports/${report.id}/privatize`,{owner:true})).json(),{id:report.id,public:false});
+  assert.equal((await unlock(env,report,result.code)).status,200);
+});
+
+test('Only the owner can make an active report private through a same-origin POST',async()=>{
+  const env=environment(),report=await create(env),otherId='c'.repeat(64);
+  env.H3X_ACCOUNTS.context(otherId).data.set('account',{id:otherId,name:'OtherOwner',sessions:[{hash:createHash('sha256').update(ownerToken).digest('hex'),expires:Date.now()+3600000}]});
+  const path=`/api/reports/${report.id}/privatize`;
+  assert.equal((await call(env,path,{owner:true})).status,404);
+  await call(env,`/api/reports/${report.id}/activate`,{owner:true,body:{access:'public'}});
+  assert.equal((await call(env,path)).status,401);
+  assert.equal((await call(env,path,{cookie:`h3x_account=${otherId}.${ownerToken}`})).status,403);
+  assert.equal((await call(env,path,{owner:true,origin:'https://untrusted.example'})).status,403);
+  assert.equal((await call(env,path,{owner:true,method:'GET'})).status,405);
+  assert.equal((await call(env,`/api/reports/${report.id}/content`,{method:'GET'})).status,200);
+});
 test('Another signed-in account cannot publish or discard the creator\'s pending report',async()=>{
   const env=environment(),report=await create(env),otherId='c'.repeat(64);
   env.H3X_ACCOUNTS.context(otherId).data.set('account',{id:otherId,name:'OtherOwner',sessions:[{hash:createHash('sha256').update(ownerToken).digest('hex'),expires:Date.now()+3600000}]});

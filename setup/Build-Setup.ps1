@@ -9,7 +9,7 @@ if($Repository -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*
 $release=Join-Path $root 'release'
 [void](New-Item -ItemType Directory -Force -Path $release)
 $icon=Join-Path $root 'build/icon.ico'
-$png=Join-Path $root 'build/setup-icon.png'
+$png=Join-Path $release 'setup-icon.png'
 # Extract the original PNG payload so the setup uses the exact app icon.
 $bytes=[IO.File]::ReadAllBytes($icon)
 $found=$false
@@ -30,5 +30,5 @@ $output=Join-Path $release 'H3X-Setup.exe'
 try{
     & $compiler /nologo /target:winexe /platform:x64 /reference:System.Windows.Forms.dll "/win32icon:$icon" "/out:$output" "/resource:$(Join-Path $PSScriptRoot 'H3X-Setup.ps1'),H3X-Setup.ps1" "/resource:$png,setup-icon.png" "/resource:$config,setup-config.json" (Join-Path $PSScriptRoot 'SetupLauncher.cs')
     if($LASTEXITCODE -ne 0){throw 'Setup launcher compilation failed.'}
-}finally{Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue}
+}finally{Remove-Item -LiteralPath $config,$png -Force -ErrorAction SilentlyContinue}
 Write-Output "Built $output"

@@ -23,6 +23,7 @@ test('account selection ignores names, credentials, unrelated IDs and unsafe int
 
 test('Steam cards normalize documented nested identity and creation date',async()=>{
  const result=await searchProfile({query:'76561199443618616',profileKind:'steam',settings:{oathOptions:{search_id:'sess_test'}}},'test-key',async(url,options)=>{
+  if(url.endsWith('/search/init'))return response({session:{id:'sess_test'}});
   const u=new URL(url);assert.equal(u.pathname,'/api/service/steam');assert.equal(u.searchParams.get('steam_id'),'76561199443618616');assert.equal(u.searchParams.get('search_id'),'sess_test');assert.equal(options.headers['x-api-key'],'test-key');assert.ok(!url.includes('test-key'));
   return response({username:'example',meta:{id:'76561199443618616',raw_data:{steamid:'76561199443618616',personaname:'Example',avatarfull:'https://example.org/avatar.png',timecreated:1670701199,communityvisibilitystate:3}},_meta:{user:{plan:'Pro'}}});
  });
@@ -31,6 +32,7 @@ test('Steam cards normalize documented nested identity and creation date',async(
 
 test('Xbox cards preserve zero gamerscore and nested account details',async()=>{
  const result=await searchProfile({query:'Example',profileKind:'xbox'},'key',async url=>{
+  if(url.endsWith('/search/init'))return response({session:{id:'sess_xbox'}});
   assert.equal(new URL(url).searchParams.get('xbl_id'),'Example');
   return response({username:'Example',avatar:'https://example.org/avatar.png',meta:{id:'2535419058108561',meta:{gamerscore:0,accounttier:'Silver',xboxonerep:'GoodPlayer'},scraper_data:{games_played:0}}});
  });
@@ -39,6 +41,7 @@ test('Xbox cards preserve zero gamerscore and nested account details',async()=>{
 
 test('Discord fetches account and username history with the documented nested history shape',async()=>{
  const paths=[];const result=await searchProfile({query:'300760994454437890',profileKind:'discord'},'key',async url=>{
+  if(url.endsWith('/search/init'))return response({session:{id:'sess_discord'}});
   const u=new URL(url);paths.push(u.pathname);assert.equal(u.searchParams.get('discord_id'),'300760994454437890');
   return response(u.pathname.endsWith('discord-userinfo')?{id:'300760994454437890',username:'example',global_name:'Example',badges:[]}:{success:true,history:[{name:['previous'],time:['2025-08-01T13:01:13.476Z']}]});
  });
@@ -48,7 +51,7 @@ test('Discord fetches account and username history with the documented nested hi
 test('Discord retains account on history failure and unavailable responses create no placeholder accounts',async()=>{
  const result=await searchProfile({query:'300760994454437890',profileKind:'discord'},'key',async url=>url.includes('discord-userinfo')?response({id:'300760994454437890',username:'example'}):{ok:false,status:503});
  assert.equal(result.items.length,1);assert.match(result.notice,/history is unavailable/);assert.equal(result.items[0].fields.username_history,undefined);
- assert.deepEqual((await searchProfile({query:'example',profileKind:'steam'},'key',async()=>response({_meta:{user:{plan:'Pro'}}}))).items,[]);
+ assert.deepEqual((await searchProfile({query:'example',profileKind:'steam'},'key',async url=>response(url.endsWith('/search/init')?{session:{id:'sess_empty'}}:{_meta:{user:{plan:'Pro'}}}))).items,[]);
  const missing=await searchProfile({query:'example',profileKind:'xbox'},'key',async()=>({ok:false,status:404}));assert.equal(missing.items.length,0);assert.match(missing.notice,/unavailable/);
  await assert.rejects(searchProfile({query:'example',profileKind:'steam'},'key',async()=>({ok:true,json:async()=>{throw Error()}})),/invalid response/);
 });

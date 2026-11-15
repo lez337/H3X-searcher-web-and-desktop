@@ -40,7 +40,7 @@ test('age comparisons combine with saved structured rules',()=>{
 });
 test('translated slash filters reach provider request bodies and parameters',async()=>{
  const previous=global.fetch,requests=[];
- global.fetch=async(url,options)=>{requests.push({url:String(url),options});return {ok:true,text:async()=>JSON.stringify({data:{items:[],results:[]}})}};
+ global.fetch=async(url,options)=>{if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_commands'}}});requests.push({url:String(url),options});return {ok:true,text:async()=>JSON.stringify({data:{items:[],results:[]}})}};
  try{
   const result=parseSearchCommands('/name "Jean Dupont" /city Paris /age >=18 /family breach /limit 50',{});
   await searchBrix({query:result.query,settings:result.settings});
@@ -87,7 +87,7 @@ test('BrixHub broad names retain successes when a variant fails and never overwr
 
 test('normal BrixHub auto and manual names expand while explicit fields and OathNet stay precise',async()=>{
  const previous=global.fetch,requests=[];
- global.fetch=async(url,options)=>{requests.push({url:String(url),body:options?.body?JSON.parse(options.body):null});return {ok:true,text:async()=>JSON.stringify({data:{results:[{name:'Jhon Doe'}],items:[]}})}};
+ global.fetch=async(url,options)=>{if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_names'}}});requests.push({url:String(url),body:options?.body?JSON.parse(options.body):null});return {ok:true,text:async()=>JSON.stringify({data:{results:[{name:'Jhon Doe'}],items:[]}})}};
  try{
   for(const settings of [{},{searchQueryType:'name'}]){
    requests.length=0;const result=await searchBrix({query:'Jhon Doe',settings});

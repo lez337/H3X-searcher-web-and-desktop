@@ -187,8 +187,8 @@
 .graph-body {
   display:grid;
   grid-template-columns:205px minmax(220px,1fr) 260px;
-  height:clamp(450px,calc(100vh - 360px),950px);
-  min-height:450px
+  height:clamp(560px,calc(100vh - 300px),950px);
+  min-height:560px
 }
 
 .graph-body.graph-list-closed {
@@ -336,6 +336,11 @@
   height:100%;
   outline:none;
   touch-action:none
+}
+
+.graph-canvas:focus-visible {
+  outline:2px solid #bdbdbd;
+  outline-offset:-3px
 }
 
 .graph-scene-top {
@@ -1207,6 +1212,18 @@
   .graph-status-message {
     max-width:240px
   }
+}
+
+.graph-body.graph-inspector-closed {
+  grid-template-columns:205px minmax(220px,1fr)
+}
+
+.graph-body.graph-inspector-closed.graph-list-closed {
+  grid-template-columns:minmax(220px,1fr)
+}
+
+.graph-inspector-closed .graph-inspector {
+  display:none
 }
 
 @media(prefers-reduced-motion:reduce) {

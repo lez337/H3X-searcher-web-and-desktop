@@ -45,6 +45,28 @@ test('Closing an account cancels queued writes and clears its investigation stat
   const pending=s.saveWorkspace(state);s.closeWorkspace();await assert.rejects(pending,/session has ended/);
   assert.equal(calls.filter(c=>c.options.method==='POST').length,0);await assert.rejects(()=>s.loadWorkspace(),/Sign in/);
 }));
+
+test('Local deletion removes only the deleted account’s browser records',async()=>{
+  const originalDB=globalThis.indexedDB,originalRange=globalThis.IDBKeyRange;
+  const records=new Map([[id+':logs',[]],[id+':preferences',{}],['other:logs',[]],['state',{}]]);
+  globalThis.IDBKeyRange={bound:(lower,upper)=>({lower,upper})};
+  globalThis.indexedDB={open(){
+    const request={};queueMicrotask(()=>{
+      request.result={transaction(){
+        const transaction={objectStore:()=>({openCursor(range){
+          const cursorRequest={},keys=[...records.keys()].filter(key=>key>=range.lower&&key<=range.upper);let index=0;
+          const next=()=>queueMicrotask(()=>{
+            const key=keys[index++];
+            cursorRequest.result=key?{delete:()=>records.delete(key),continue:next}:null;
+            cursorRequest.onsuccess();if(!key)transaction.oncomplete();
+          });next();return cursorRequest;
+        }})};return transaction;
+      }};request.onsuccess();
+    });return request;
+  }};
+  try{const s=await storage();await s.deleteLocalAccount(id);assert.deepEqual([...records.keys()],['other:logs','state']);}
+  finally{globalThis.indexedDB=originalDB;globalThis.IDBKeyRange=originalRange;}
+});
 test('A failed initial account load never opens an empty replacement workspace',()=>setup(async()=>{
   const s=await storage();globalThis.fetch=async()=>Response.json({error:'Unavailable fixture'},{status:503});
   await assert.rejects(()=>s.openWorkspace(id),/Unavailable/);assert.equal(s.accountId(),undefined);await assert.rejects(()=>s.saveWorkspace({}),/Sign in/);

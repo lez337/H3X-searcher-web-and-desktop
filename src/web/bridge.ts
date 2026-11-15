@@ -95,24 +95,26 @@ async function geocode(query:string,refresh=false){
 async function deepSearch(p:any){
   const controller=new AbortController();runs.set(p.runId,controller);
   const items=new Map<string,any>(),warnings:string[]=[];let completed=0,limited=false;
+  let tasks=p.plan.tasks;
   try{
     if(p.plan.longSearch||!Array.isArray(p.plan.tasks)||p.plan.tasks.length>84)throw Error('Choose a bounded web deep search with up to 84 tasks.');
-    for(const task of p.plan.tasks){
+    tasks=p.plan.tasks.flatMap((task:any)=>task.provider==='oathnet'&&Array.isArray(task.terms)?task.terms.map((term:string)=>({...task,terms:[term]})):[task]);
+    for(const task of tasks){
       if(controller.signal.aborted)break;
       if(task.provider==='ghunt'&&window.h3xDesktop){
-        try{const result=await window.h3xDesktop.searchLocal(task);for(const item of result.items)items.set(item.id,item);if(result.notice)warnings.push(result.notice);completed++;emit('deep',{runId:p.runId,completed,total:p.plan.tasks.length,records:items.size,items:result.items});}
+        try{const result=await window.h3xDesktop.searchLocal(task);for(const item of result.items)items.set(item.id,item);if(result.notice)warnings.push(result.notice);completed++;emit('deep',{runId:p.runId,completed,total:tasks.length,records:items.size,items:result.items});}
         catch(error){warnings.push((error as Error).message);completed++;}
         continue;
       }
       const result=await rpc('deepSearch',{...p,plan:{...p.plan,tasks:[task]}},controller.signal,(type,progress)=>{
-        if(type==='deepProgress'){for(const item of progress.items||[])items.set(item.id,item);emit('deep',{...progress,completed:completed+progress.completed,total:p.plan.tasks.length,records:items.size})}
+        if(type==='deepProgress'){for(const item of progress.items||[])items.set(item.id,item);emit('deep',{...progress,completed:completed+progress.completed,total:tasks.length,records:items.size})}
       });
       for(const item of result.items)items.set(item.id,item);warnings.push(...result.warnings);limited||=result.limited;completed++;
       if(items.size>=5000){limited=true;warnings.push('Web deep search retained the first 5,000 records.');break}
     }
   }catch(error){if(!controller.signal.aborted){if(!items.size)throw error;warnings.push((error as Error).message)}}
   finally{runs.delete(p.runId)}
-  return {items:[...items.values()].slice(0,5000),completed,total:p.plan.tasks.length,canceled:controller.signal.aborted,warnings,limited};
+  return {items:[...items.values()].slice(0,5000),completed,total:tasks.length,canceled:controller.signal.aborted,warnings,limited};
 }
 const desktop=async()=>{throw Error('This integration requires the Windows desktop application.')};
 let creatingReport=false;

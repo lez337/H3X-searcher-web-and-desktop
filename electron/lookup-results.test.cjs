@@ -4,7 +4,7 @@ const providers=require('./providers.cjs');
 
 test('OathNet defaults to both datasets and reports a partial dataset failure',async()=>{
  const previous=global.fetch,requested=[];
- global.fetch=async url=>{requested.push(url);if(url.includes('/stealer/'))throw Error('Service unavailable');return {ok:true,text:async()=>JSON.stringify({data:{items:[{name:'Example'}]}})}};
+ global.fetch=async url=>{if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_lookup'}}});requested.push(url);if(url.includes('/stealer/'))throw Error('Service unavailable');return {ok:true,text:async()=>JSON.stringify({data:{items:[{name:'Example'}]}})}};
  try{
   const result=await providers.searchOath({query:'example',settings:{}},'test-key');
   assert.equal(requested.length,2);
@@ -58,6 +58,7 @@ const {searchWorkflow}=require('./search-workflow.cjs');
 test('Oath pagination survives mixed providers and advances only unfinished datasets',async()=>{
  const previous=global.fetch,calls=[];
  global.fetch=async url=>{
+  if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_pages'}}});
   const u=new URL(url),family=u.pathname.includes('/stealer/')?'stealer':'breach',cursor=u.searchParams.get('cursor');calls.push({family,cursor});
   if(family==='stealer')assert.equal(u.searchParams.get('country[]'),'FR');
   return {ok:true,text:async()=>JSON.stringify({data:{items:[{id:family+(cursor||'first'),log_id:'fixture-log',password:'private'}],next_cursor:family==='stealer'&&!cursor?'stealer-page-2':null}})};

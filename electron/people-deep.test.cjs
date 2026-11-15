@@ -4,7 +4,7 @@ const {groupPeople}=require('../src/peopleModel.ts');
 const {deepDefaults,deepTerms,makeDeepPlan,pendingDeepPlan,trustedDeepHits,reviewDeepFacts,reviewedPerson,discoveredContacts,classifyDeepHits,deepReviewGroups,deepRecordGroups,reviewedPeople,classifyDeepNetwork,nextDeepSearchTerms}=require('../src/peopleDeepModel.ts');
 const {exportSearchPerson}=require('../src/peopleExport.ts');
 const {prepare,textReport}=require('./investigation.cjs');
-const {validatePlan,cleanRecord,recordItem,parseBulk,oathBulk,runDeepSearch,registerDeepSearch}=require('./people-deep.cjs');
+const {validatePlan,cleanRecord,recordItem,oathBulk,runDeepSearch,registerDeepSearch}=require('./people-deep.cjs');
 const {searchBrix}=require('./providers.cjs');
 const item=(id,fields,source='OathNet · breach')=>({id,source,fields});
 const seed=()=>groupPeople([item('seed',{name:'Alex Example',email:'alex@example.org',phone:'+33 6 12 34 56 78',dob:'1990-06-15',city:'Paris',country:'FR'})])[0];
@@ -147,77 +147,33 @@ test('reviewed edits and deletions survive evidence mapping and the investigatio
  const report=textReport({title:'Deep review',people:[saved]},[]);assert.match(report,/Architect/);assert.doesNotMatch(report,/Designer|private-time|6 12 34/);
 });
 
-test('native bulk parses raw/enveloped JSONL, applies query_config, polls owned ID and downloads only from OathNet',async()=>{
- const calls=[],responses=[{success:true,data:{job_id:'owned-job',status:'queued',next_poll_after_ms:1}},{job_id:'owned-job',status:'completed',result:{records:1}},'{"record":{"name":"Alex Example","email":"alex@example.org","password":"do-not-return"}}\n'];
- const task=makeDeepPlan(seed(),deepTerms(seed()),{...deepDefaults,brix:false,mode:'filtered'},{}).tasks[0];
- task.options={cursor:'stale',search_id:'stale',sort:'-indexed_at'};
- const result=await oathBulk(task,'secret-key',{signal:new AbortController().signal,wait:async()=>{},fetcher:async(url,options)=>{calls.push({url,options});const body=responses.shift();return {ok:true,text:async()=>typeof body==='string'?body:JSON.stringify(body)}}});
- assert.equal(calls[0].url,'https://oathnet.org/api/service/v2/bulk-search');assert.equal(calls[0].options.headers['x-api-key'],'secret-key');
- const body=JSON.parse(calls[0].options.body);assert.equal(body.format,'jsonl');assert.equal(body.service,'breach');assert.equal(body.limit,1000);assert.ok(body.query_config.filter);assert.equal(body.query_config.cursor,undefined);assert.equal(body.query_config.search_id,undefined);
- assert.deepEqual(body.query_config.extra_params,{sort:'-indexed_at'});assert.equal(body.query_config.sort,undefined);
- assert.equal(calls[1].url,calls[0].url+'/owned-job');assert.equal(calls[2].url,calls[0].url+'/owned-job/download');assert.equal(result.items[0].fields.password,undefined);
- assert.deepEqual(parseBulk(JSON.stringify({data:{results:[{email:'a@example.org'}]}})),[{email:'a@example.org'}]);assert.throws(()=>parseBulk('broken'),/malformed/);
-});
-
-test('rejected bulk creation falls back to paginated searches with identical terms and filters',async()=>{
+test('Oath batches use one session per identifier and paginate with explicit filters',async()=>{
  const calls=[],filter={field:'email',operator:'eq',value:'alex@example.org'};
- const responses=[{status:400,body:{message:'Bulk service is unavailable'}},{body:{data:{items:[{email:'alex@example.org',password:'private'}],next_cursor:'page-2'}}},{body:{data:{items:[{name:'Alex Example'}]}}},{body:{data:{items:[]}}}];
- const task={terms:[' alex@example.org ','Alex Example','alex@example.org'],filters:{filter,country:['FR'],city:[],dbname:[],email:'',extra_params:{cursor:'stale'}},options:{sort:'-indexed_at',cursor:'stale'}};
- const result=await oathBulk(task,'secret-key',{fetcher:async(url,options)=>{
-  calls.push({url,options});const response=responses.shift();assert.ok(response,'No unexpected requests');return {ok:!response.status,status:response.status||200,text:async()=>JSON.stringify(response.body)};
+ const result=await oathBulk({terms:[' alex@example.org ','Alex Example','alex@example.org'],filters:{filter,country:['FR'],city:[]},options:{sort:'-indexed_at',search_id:'stale',cursor:'stale'}},'batch-key',{fetcher:async(url,options)=>{
+  calls.push({url,options});
+  if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_'+JSON.parse(options.body).query}}});
+  const params=new URL(url).searchParams;
+  assert.equal(params.get('search_id'),'sess_'+params.get('q'));assert.equal(params.get('filter'),JSON.stringify(filter));assert.deepEqual(params.getAll('country[]'),['FR']);assert.equal(params.has('city[]'),false);assert.equal(params.get('sort'),'-indexed_at');
+  return Response.json({data:{items:[{name:'Alex',password:'private'}],next_cursor:params.get('q')==='alex@example.org'&&!params.has('cursor')?'page-2':null}});
  }});
- const bulk=JSON.parse(calls[0].options.body);assert.deepEqual(bulk.terms,['alex@example.org','Alex Example']);assert.equal(bulk.query_config.city,undefined);assert.equal(bulk.query_config.dbname,undefined);
- assert.equal(calls.length,4);
- for(const [index,call] of calls.slice(1).entries()){
-  const url=new URL(call.url);assert.equal(url.pathname,'/api/service/v2/breach/search');
-  assert.equal(url.searchParams.get('q'),index===2?'Alex Example':'alex@example.org');assert.equal(url.searchParams.get('filter'),JSON.stringify(filter));assert.deepEqual(url.searchParams.getAll('country[]'),['FR']);
-  assert.equal(url.searchParams.get('sort'),'-indexed_at');assert.equal(url.searchParams.get('cursor'),index===1?'page-2':null);assert.equal(call.options.headers['x-api-key'],'secret-key');
- }
- assert.equal(result.items.length,2);assert.equal(result.items[0].fields.password,undefined);assert.equal(result.limited,false);
+ assert.equal(calls.filter(c=>c.url.endsWith('/search/init')).length,2);assert.equal(calls.length,5);assert.equal(result.items.length,3);assert.equal(result.items[0].fields.password,undefined);
 });
 
-test('unfiltered bulk omits empty query_config and fallback keeps the 1000 record cap',async()=>{
- let calls=0;
- const result=await oathBulk({terms:['alex','other'],filters:{}},'key',{fetcher:async(url,options)=>{
-  calls++;
-  if(calls===1){assert.equal(JSON.parse(options.body).query_config,undefined);return {ok:false,status:422,text:async()=>JSON.stringify({detail:[{msg:'Unsupported bulk request'}]})}}
-  assert.equal(new URL(url).searchParams.get('q'),'alex');
-  return {ok:true,text:async()=>JSON.stringify({data:{items:Array.from({length:100},(_,i)=>({name:'Alex '+i})),next_cursor:'cursor-'+calls}})};
+test('session batches cap records, reject repeated cursors and preserve cancellation',async()=>{
+ const session=url=>url.endsWith('/search/init');let calls=0;
+ const result=await oathBulk({terms:['cap'],filters:{}},'cap-key',{fetcher:async url=>{
+  if(session(url))return Response.json({data:{session:{id:'sess_cap'}}});
+  calls++;return Response.json({data:{items:Array.from({length:100},(_,i)=>({name:'Alex '+i})),next_cursor:'cursor-'+calls}});
  }});
- assert.equal(calls,11);assert.equal(result.items.length,1000);assert.equal(result.limited,true);
+ assert.equal(calls,10);assert.equal(result.items.length,1000);assert.equal(result.limited,true);
+ await assert.rejects(oathBulk({terms:['repeat'],filters:{}},'repeat-key',{fetcher:async url=>Response.json({data:session(url)?{session:{id:'sess_repeat'}}:{items:[],next_cursor:'same'}})}),/repeated search cursor/);
+ const controller=new AbortController();controller.abort();
+ await assert.rejects(oathBulk({terms:['cancel'],filters:{}},'key',{signal:controller.signal,fetcher:async()=>{throw Error('must not fetch')}}),/abort/i);
 });
 
-test('provider diagnostics survive fallback failures and auth, quota, server and accepted-job errors never fall back',async()=>{
- let calls=0;
- await assert.rejects(oathBulk({terms:['alex'],filters:{}},'secret-key',{fetcher:async()=>{
-  calls++;return {ok:false,status:400,text:async()=>JSON.stringify(calls===1?{error:{message:'Invalid bulk service secret-key'}}:{detail:[{msg:'Invalid search filter',input:'must-not-leak'}]})};
- }}),error=>{assert.match(error.message,/HTTP 400.*Invalid bulk service \[redacted\].*fallback failed:.*Invalid search filter/);assert.doesNotMatch(error.message,/secret-key|must-not-leak/);return true});
- assert.equal(calls,2);
- for(const status of [401,403,429,500]){
-  let requests=0;await assert.rejects(oathBulk({terms:['alex'],filters:{}},'key',{fetcher:async()=>{requests++;return {ok:false,status,text:async()=>JSON.stringify({message:'Provider rejected request'})}}}),new RegExp('HTTP '+status+'\\): Provider rejected request'));
-  assert.equal(requests,1);
- }
- let requests=0;await assert.rejects(oathBulk({terms:['alex'],filters:{}},'key',{wait:async()=>{},fetcher:async()=>{
-  requests++;return requests===1?{ok:true,text:async()=>JSON.stringify({job_id:'accepted',status:'queued'})}:{ok:false,status:400,text:async()=>JSON.stringify({message:'Status unavailable'})};
- }}),/Status unavailable/);assert.equal(requests,2);
-});
-
-test('individual-search fallback respects stop and rejects repeated cursors',async()=>{
- const controller=new AbortController();let calls=0;
- await assert.rejects(oathBulk({terms:['alex','other'],filters:{}},'key',{signal:controller.signal,fetcher:async()=>{
-  calls++;if(calls===1)return {ok:false,status:400};controller.abort();return {ok:true,text:async()=>JSON.stringify({items:[],next_cursor:'next'})};
- }}),/abort/i);assert.equal(calls,2);
- calls=0;await assert.rejects(oathBulk({terms:['alex'],filters:{}},'key',{fetcher:async()=>{
-  calls++;return calls===1?{ok:false,status:400}:{ok:true,text:async()=>JSON.stringify({items:[],next_cursor:'same'})};
- }}),/repeated search cursor/);assert.equal(calls,3);
-});
-
-test('bulk failures, malformed jobs and oversized output are reported without following result URLs',async()=>{
- const task={provider:'oathnet',family:'breach',terms:['alex@example.org'],filters:{}};
- await assert.rejects(oathBulk(task,'key',{fetcher:async()=>({ok:false,status:429})}),/HTTP 429/);
- await assert.rejects(oathBulk(task,'key',{fetcher:async()=>({ok:true,text:async()=>JSON.stringify({data:{job_id:'https://untrusted.example/steal',status:'completed'}})})}),/valid bulk job/);
- await assert.rejects(oathBulk(task,'key',{fetcher:async()=>({ok:true,headers:{get:()=>String(9000000)}})}),/8 MB/);
- const controller=new AbortController();controller.abort();await assert.rejects(oathBulk(task,'key',{signal:controller.signal,fetcher:async()=>({ok:true,text:async()=>JSON.stringify({id:'job',status:'running'})})}),/abort/i);
+test('session batches reject provider failures and oversized responses',async()=>{
+ for(const status of [400,401,403,429,500])await assert.rejects(oathBulk({terms:['error'],filters:{}},'error-key',{fetcher:async url=>url.endsWith('/search/init')?Response.json({data:{session:{id:'sess_error'}}}):Response.json({message:'Rejected error-key'},{status})}),new RegExp('HTTP '+status));
+ await assert.rejects(oathBulk({terms:['error'],filters:{}},'error-key',{fetcher:async()=>({ok:true,headers:{get:()=>String(9000000)}})}),/8 MB/);
 });
 
 test('runner limits concurrency, paginates BrixHub explicitly and preserves partial results on provider failure',async()=>{

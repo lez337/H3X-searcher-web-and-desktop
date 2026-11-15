@@ -1,9 +1,9 @@
 'use strict';
 const crypto=require('node:crypto');
-const {setTimeout:delay}=require('node:timers/promises');
 const {searchBrix,BRIX_FIELDS,validateFilter}=require('./providers.cjs');
+const {oathSession}=require('./oath-session.cjs');
 const {searchGhunt}=require('./public-providers.cjs');
-const BASE='https://oathnet.org/api/service/v2/bulk-search';
+const BASE='https://oathnet.org/api/service/v2/breach/search';
 const MAX_BYTES=8*1024*1024,MAX_RECORDS=5000;
 const privateField=/(?:password|passwd|secret|token|cookie|session|authorization|api.?key)|^(?:pwd|auth|raw|raw_response|output|response|log|log_content)$/i;
 function cleanRecord(value,depth=0){
@@ -20,7 +20,7 @@ function validatePlan(plan){
  for(const task of plan.tasks){
   if(!task||!['oathnet','brixhub','ghunt'].includes(task.provider)||!task.filters||typeof task.filters!=='object'||Array.isArray(task.filters))throw Error('Invalid deep-search task.');
   if(task.provider==='oathnet'){
-   if(task.family!=='breach'||!Array.isArray(task.terms)||!task.terms.length||task.terms.length>36||task.terms.some(t=>typeof t!=='string'||!t.trim()||t.length>150||/[\u0000-\u001f]/.test(t)))throw Error('OathNet bulk search accepts up to 36 identity terms.');
+   if(task.family!=='breach'||!Array.isArray(task.terms)||!task.terms.length||task.terms.length>36||task.terms.some(t=>typeof t!=='string'||!t.trim()||t.length>150||/[\u0000-\u001f]/.test(t)))throw Error('OathNet search accepts up to 36 identity terms.');
   }else if(task.provider==='ghunt'){
    if(typeof task.query!=='string'||task.query.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(task.query)||task.settings?.ghuntPath!=null&&(typeof task.settings.ghuntPath!=='string'||task.settings.ghuntPath.length>1024))throw Error('Invalid GHunt email lookup.');
   }else if(!BRIX_FIELDS.has(task.field)||typeof task.query!=='string'||!task.query.trim()||task.query.length>150||/[\u0000-\u001f]/.test(task.query))throw Error('Invalid BrixHub identity term.');
@@ -34,23 +34,7 @@ async function boundedText(response){
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>MAX_BYTES){await reader.cancel();throw Error('Provider output exceeds the 8 MB deep-search limit.')}chunks.push(Buffer.from(value))}}finally{reader.releaseLock()}
  return Buffer.concat(chunks).toString('utf8');
 }
-function parseBulk(text){
- const records=[];
- function add(value){
-  if(Array.isArray(value)){value.forEach(add);return}
-  if(!value||typeof value!=='object')return;
-  // Accept JSON arrays, envelopes, and per-term JSONL search envelopes.
-  for(const key of ['items','results','records'])if(Array.isArray(value[key])){add(value[key]);return}
-  if(value.data&&typeof value.data==='object'){add(value.data);return}
-  if(value.record&&typeof value.record==='object'){add(value.record);return}
-  records.push(value);
- }
- const trimmed=text.replace(/^\uFEFF/,'').trim();if(!trimmed)return [];
- try{add(JSON.parse(trimmed))}catch{for(const line of trimmed.split(/\r?\n/).filter(v=>v.trim())){let value;try{value=JSON.parse(line)}catch{throw Error('OathNet returned malformed bulk JSON output.')}add(value)}}
- return records;
-}
-// Contract: docs.oathnet.org/api-reference/endpoints/v2-bulk-search-create.
-async function oathBulk(task,key,{signal,progress,fetcher=fetch,wait=delay,now=Date.now}={}){
+async function oathBulk(task,key,{signal,progress,fetcher=fetch,now=Date.now}={}){
  if(!key)throw Error('Add an OathNet API key in Settings.');
  const headers={'x-api-key':key,'Content-Type':'application/json'};
  function reason(body){
@@ -86,55 +70,34 @@ async function oathBulk(task,key,{signal,progress,fetcher=fetch,wait=delay,now=D
  if(config.filter){if(typeof config.filter==='string')config.filter=JSON.parse(config.filter);if(config.filter&&typeof config.filter==='object'&&!Array.isArray(config.filter)&&!Object.keys(config.filter).length)delete config.filter;else validateFilter(config.filter)}
  if(config.filter_id&&!/^[a-f0-9]{24}$/i.test(config.filter_id))throw Error('OathNet filter ID must be 24 hexadecimal characters.');
  const terms=[...new Set(task.terms.map(term=>term.trim()))];
- let job;
- try{job=await json(BASE,{method:'POST',body:JSON.stringify({terms,service:'breach',format:'jsonl',limit:1000,...(Object.keys(config).length?{query_config:config}:{})})})}
- catch(error){
-  // Only rejected job creation can fall back. Never resubmit an accepted job,
-  // bypass filters, or retry authentication / quota / server failures.
-  if(![400,404,405,422].includes(error.status))throw error;
-  progress?.('OathNet bulk unavailable; searching the same identifiers individually');
-  const rows=[],started=now();let requests=0,limited=false;
-  try{
-   for(let index=0;index<terms.length;index++){
-    let cursor='';const cursors=new Set();
-    do{
-     signal?.throwIfAborted();
-     if(now()-started>180000)throw Error('OathNet individual searches timed out after 3 minutes.');
-     if(requests++>=50){limited=true;break}
-     const params=new URLSearchParams({q:terms[index],page_size:String(Math.min(100,1000-rows.length))});
-     for(const [key,value] of Object.entries({...config,...extra})){
-      if(key==='extra_params')continue;
-      if(key==='filter')params.set(key,JSON.stringify(value));
-      else if(Array.isArray(value))for(const entry of value)params.append(key.endsWith('[]')?key:key+'[]',String(entry));
-      else params.set(key,String(value));
-     }
-     if(cursor)params.set('cursor',cursor);
-     progress?.(`OathNet individual search ${index+1}/${terms.length}`);
-     const result=await json(BASE.replace(/bulk-search$/,'breach/search')+'?'+params);
-     if(!Array.isArray(result.items))throw Error('Unexpected OathNet response: data.items missing.');
-     rows.push(...result.items.slice(0,1000-rows.length));
-     const next=typeof result.next_cursor==='string'?result.next_cursor:'';
-     if(next&&cursors.has(next))throw Error('OathNet returned a repeated search cursor.');
-     if(next)cursors.add(next);cursor=next;
-     if(rows.length>=1000){limited=true;break}
-    }while(cursor);
-    if(limited)break;
+ const rows=[],started=now();let requests=0,limited=false;
+ for(let index=0;index<terms.length;index++){
+  const searchId=await oathSession(terms[index],key,{signal,request:fetcher,now});
+  let cursor='';const cursors=new Set();
+  do{
+   signal?.throwIfAborted();
+   if(now()-started>180000)throw Error('OathNet individual searches timed out after 3 minutes.');
+   if(requests++>=50){limited=true;break}
+   const params=new URLSearchParams({q:terms[index],search_id:searchId,page_size:String(Math.min(100,1000-rows.length))});
+   for(const [key,value] of Object.entries({...config,...extra})){
+    if(key==='extra_params')continue;
+    if(key==='filter')params.set(key,JSON.stringify(value));
+    else if(Array.isArray(value))for(const entry of value)params.append(key.endsWith('[]')?key:key+'[]',String(entry));
+    else params.set(key,String(value));
    }
-  }catch(fallbackError){if(signal?.aborted)throw fallbackError;throw Error(`${error.message} Individual-search fallback failed: ${fallbackError.message}`)}
-  return {items:rows.map(fields=>recordItem(fields,'OathNet · breach')),limited};
+   if(cursor)params.set('cursor',cursor);
+   progress?.(`OathNet individual search ${index+1}/${terms.length}`);
+   const result=await json(BASE+'?'+params);
+   if(!Array.isArray(result.items))throw Error('Unexpected OathNet response: data.items missing.');
+   rows.push(...result.items.slice(0,1000-rows.length));
+   const next=typeof result.next_cursor==='string'?result.next_cursor:'';
+   if(next&&cursors.has(next))throw Error('OathNet returned a repeated search cursor.');
+   if(next)cursors.add(next);cursor=next;
+   if(rows.length>=1000){limited=true;break}
+  }while(cursor);
+  if(limited)break;
  }
- const id=String(job.job_id||job.id||'');if(!/^[a-z0-9_-]{1,160}$/i.test(id))throw Error('OathNet did not return a valid bulk job ID.');
- const started=now();
- while(job.status!=='completed'){
-  signal?.throwIfAborted();
-  if(['canceled','cancelled','failed','error','expired'].includes(job.status))throw Error('OathNet bulk job '+job.status+'.');
-  if(now()-started>180000)throw Error('OathNet bulk job timed out after 3 minutes.');
-  progress?.(`OathNet bulk ${job.status||'queued'}${Number.isFinite(job.progress?.percent)?' · '+Math.round(job.progress.percent)+'%':''}`);
-  await wait(Math.max(300,Math.min(5000,Number(job.next_poll_after_ms)||1000)),undefined,{signal});
-  job=await json(BASE+'/'+encodeURIComponent(id));
- }
- const rows=parseBulk(await boundedText(await request(BASE+'/'+encodeURIComponent(id)+'/download')));
- return {items:rows.slice(0,1000).map(fields=>recordItem(fields,'OathNet · breach')),limited:rows.length>=1000||Number(job.result?.records)>=1000};
+ return {items:rows.map(fields=>recordItem(fields,'OathNet · breach')),limited};
 }
 async function runDeepSearch(plan,{signal=new AbortController().signal,key='',progress=()=>{},oath=oathBulk,brix=searchBrix,ghunt=searchGhunt}={}){
  validatePlan(plan);let next=0,completed=0,limited=false;const items=new Map(),warnings=[];
@@ -144,7 +107,7 @@ async function runDeepSearch(plan,{signal=new AbortController().signal,key='',pr
  emit('Starting deep search');
  await Promise.all(Array.from({length:Math.min(2,plan.tasks.length)},async()=>{
   while(next<plan.tasks.length&&!signal.aborted){
-   const index=next++;let task=plan.tasks[index];const label=task.provider==='oathnet'?'OathNet bulk':task.provider==='ghunt'?'GHunt':'BrixHub';
+   const index=next++;let task=plan.tasks[index];const label=task.provider==='oathnet'?'OathNet session search':task.provider==='ghunt'?'GHunt':'BrixHub';
    if(task.provider==='oathnet'){
     const context=JSON.stringify(stable({...task,terms:undefined,filtered:undefined}));
     const terms=task.terms.map(term=>term.trim()).filter(term=>{const id=context+'\0'+term;if(requests.has(id))return false;requests.add(id);return true});
@@ -189,4 +152,4 @@ function registerDeepSearch({ipcMain,key,log=async()=>{}}){
  });
  ipcMain.handle('people:deep-cancel',(event,payload)=>{const run=runs.get(event.sender.id);if(!run||run.runId!==payload?.runId)return false;run.controller.abort();return true});
 }
-module.exports={validatePlan,cleanRecord,recordItem,parseBulk,oathBulk,runDeepSearch,registerDeepSearch};
+module.exports={validatePlan,cleanRecord,recordItem,oathBulk,runDeepSearch,registerDeepSearch};

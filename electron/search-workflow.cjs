@@ -42,7 +42,7 @@ async function searchWorkflow(payload,search){
     outcomes[i]={status:'fulfilled',value:{items:[],meta:{skipped:true,reason:'Query type does not match this provider.'}}};continue;
    }
    if(provider==='whatsmyname')continue;
-   try{outcomes[i]={status:'fulfilled',value:await search({...payload,provider})}}catch(reason){outcomes[i]={status:payload.signal?.aborted?'canceled':'rejected',reason}}
+   try{outcomes[i]={status:'fulfilled',value:await search({...payload,provider,...provider==='brixhub'?{settings:{...payload.settings,brixAutoSearch:true}}:{}})}}catch(reason){outcomes[i]={status:payload.signal?.aborted?'canceled':'rejected',reason}}
   }
  }));
  const items=[],warnings=[];let successes=0;const metas=[];

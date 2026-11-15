@@ -107,6 +107,8 @@ test('OathNet adapter calls breach and stealer for both identifiers and the Disc
     const url=new URL(input);calls.push(url);
     if(url.hostname==='api.brixhub.ru')return Response.json({data:{results:[]}});
     assert.equal(options.headers['x-api-key'],secret);
+    if(url.pathname.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_'+JSON.parse(options.body).query}}});
+    assert.ok(url.searchParams.get('search_id'));
     if(url.pathname.endsWith('/discord-userinfo'))return Response.json({data:null});
     assert.ok(['/api/service/v2/breach/search','/api/service/v2/stealer/search'].includes(url.pathname));
     assert.equal(url.searchParams.get('page_size'),'20');

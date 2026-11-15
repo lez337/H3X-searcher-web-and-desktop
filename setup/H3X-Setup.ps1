@@ -107,6 +107,7 @@ $location.AutoEllipsis=$true
 $footerText=if($Repository){"$Repository    /    setup $version"}else{"H3X SEARCHER    /    setup $version"}
 $footer=Label $footerText 40 642 520 24 8
 $script:job=$null
+$script:ready=$false
 function Refresh-Installation {
     if($script:entry){
         $installed.Text="Installed $($script:entry.DisplayVersion)";$subtitle.Text='Repair files or download the latest update.'
@@ -115,8 +116,9 @@ function Refresh-Installation {
     }else{
         $installed.Text='Your investigation workspace';$subtitle.Text='Install H3X Searcher on this computer.'
         $primary.Text='Install H3X Searcher';$uninstall.Enabled=$false;$status.Text='Ready to install'
-        $location.Text='H3X stays closed when setup finishes.'
+        $location.Text='After installation, click Start H3X to open the app.'
     }
+    if($script:ready -and $script:entry){$primary.Text='Start H3X'}
 }
 Refresh-Installation
 # Keep network and installation work off the UI thread.
@@ -209,13 +211,23 @@ if($VerifyDownload){
 }
 function Start-SetupJob([string]$mode){
     if($script:job){return}
+    $script:ready=$false
     $repo=$repoBox.Text.Trim()
     $command=if($script:entry.QuietUninstallString){$script:entry.QuietUninstallString}else{$script:entry.UninstallString}
     $primary.Enabled=$false;$uninstall.Enabled=$false;$repoBox.Enabled=$false;$close.Enabled=$false
     $fill.Width=0;$status.Text='Preparing...';$details.Text='Please keep setup open until this finishes.'
     $script:job=Start-Job -ScriptBlock $worker -ArgumentList $mode,$repo,$command
 }
-$primary.Add_Click({Start-SetupJob 'install'})
+$primary.Add_Click({
+    if($script:ready){
+        try{
+            $exe=Join-Path $script:entry.InstallLocation 'H3X Searcher.exe'
+            if(!(Test-Path -LiteralPath $exe)){throw 'H3X was not found. Run setup again to repair the installation.'}
+            Start-Process -FilePath $exe -WorkingDirectory $script:entry.InstallLocation
+            $form.Close()
+        }catch{$status.Text=$_.Exception.Message}
+    }else{Start-SetupJob 'install'}
+})
 $uninstall.Add_Click({
     if([Windows.Forms.MessageBox]::Show('Uninstall H3X Searcher? Your workspace and settings will be kept.','H3X / SETUP','YesNo','Question') -eq 'Yes'){Start-SetupJob 'uninstall'}
 })
@@ -229,8 +241,10 @@ $timer.Add_Tick({
     }
     if($script:job.State -in @('Completed','Failed','Stopped')){
         if($script:job.State -eq 'Failed'){$status.Text='Setup could not finish. Please try again.'}
+        $message=$status.Text
+        $script:ready=$script:job.State -eq 'Completed' -and $message -eq 'Installation complete. H3X is ready.'
         Remove-Job -Job $script:job -Force;$script:job=$null
-        $message=$status.Text;$script:entry=Find-Installation;Refresh-Installation;$status.Text=$message
+        $script:entry=Find-Installation;Refresh-Installation;$status.Text=$message
         $details.Text='Your saved workspace and settings are kept.'
         $primary.Enabled=$true;$repoBox.Enabled=$true;$close.Enabled=$true
     }

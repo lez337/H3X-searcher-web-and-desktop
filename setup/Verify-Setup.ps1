@@ -2,6 +2,19 @@ $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'H3X-Setup.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
+$refresh=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Refresh-Installation'},$true)
+foreach($name in @('installed','subtitle','primary','uninstall','status','location')){Set-Variable -Name $name -Value ([pscustomobject]@{Text='';Enabled=$false})}
+$script:entry=[pscustomobject]@{DisplayVersion='0.3.3';InstallLocation='C:\H3X'}
+$script:ready=$false
+& $refresh.Body.GetScriptBlock()
+if($primary.Text -ne 'Repair / Update'){throw 'Existing installs must offer repair before setup completes.'}
+$script:ready=$true
+& $refresh.Body.GetScriptBlock()
+if($primary.Text -ne 'Start H3X'){throw 'Completed installation must offer Start H3X.'}
+$script:entry=$null
+& $refresh.Body.GetScriptBlock()
+if($primary.Text -ne 'Install H3X Searcher'){throw 'Missing installation must never offer Start H3X.'}
+Write-Output 'PASS: Start H3X is offered only after installation'
 $node=$ast.Find({param($n) $n -is [Management.Automation.Language.ScriptBlockExpressionAst] -and $n.Parent.Parent -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Parent.Parent.Left.Extent.Text -eq '$worker'},$true)
 if(!$node){throw 'Setup worker was not found.'}
 $worker=$node.ScriptBlock.GetScriptBlock()

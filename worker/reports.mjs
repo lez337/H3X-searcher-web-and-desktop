@@ -29,10 +29,13 @@ export async function createHostedReport(payload,env,origin,account){
   if(!response.ok)return response;
   const created=await response.json();
   const indexed=await accountReports(env,account,'add',{id,title:String(payload.record.title||'Untitled investigation').slice(0,200),createdAt:new Date().toISOString()});
-  if(!indexed.ok)return indexed;
+  if(!indexed.ok){
+    await stub.fetch(new Request('https://report.internal/delete',{method:'POST',headers:{'X-H3X-Report-Owner':account.id}}));
+    return indexed;
+  }
   return json({...created,url:new URL('/reports/'+id,origin).href},201);
 }
-export function reportRoute(path){const match=path.match(/^\/api\/reports\/([^/]+)\/(activate|discard|delete|unlock|content|lock|access)$/);return match&&UUID.test(match[1])?{id:match[1],action:match[2]}:null;}
+export function reportRoute(path){const match=path.match(/^\/api\/reports\/([^/]+)\/(activate|discard|delete|privatize|unlock|content|lock|access)$/);return match&&UUID.test(match[1])?{id:match[1],action:match[2]}:null;}
 export async function forwardReport(request,env,route,payload,ownerId){
   const target=new URL(request.url);target.pathname='/'+route.action;target.search='';
   const headers=new Headers();
@@ -65,11 +68,12 @@ export class InvestigationReport {
       await storage.put(entries);await storage.setAlarm(pendingUntil);
       return json({id,code,active:false},201);
     }
-    if(!meta||(!meta.active&&Date.now()>=meta.pendingUntil))return json({error:'This report is unavailable.'},404);
+    if(!meta)return json({error:'This report is unavailable.'},404);
     if(path==='/delete'&&request.method==='POST'){
       if(!meta.ownerId||request.headers.get('X-H3X-Report-Owner')!==meta.ownerId)return json({error:'Only the report creator can delete this link.'},403);
       await storage.deleteAlarm();await storage.deleteAll();return json({deleted:true});
     }
+    if(!meta.active&&Date.now()>=meta.pendingUntil)return json({error:'This report is unavailable.'},404);
     if(['/activate','/discard'].includes(path)&&meta.ownerId&&request.headers.get('X-H3X-Report-Owner')!==meta.ownerId)return json({error:'Only the report creator can activate or discard this link.'},403);
     if(path==='/activate'&&request.method==='POST'){
       const payload=await request.json();
@@ -89,6 +93,14 @@ export class InvestigationReport {
       await storage.deleteAlarm();await storage.deleteAll();return json({discarded:true});
     }
     if(!meta.active)return json({error:'This report is unavailable.'},404);
+    if(path==='/privatize'&&request.method==='POST'){
+      if(!meta.ownerId||request.headers.get('X-H3X-Report-Owner')!==meta.ownerId)return json({error:'Only the report creator can make this link private.'},403);
+      if(meta.public!==true)return json({id:meta.id,public:false});
+      const code=generateReportCode(),salt=Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('hex');
+      meta.codeHash=await codeHash(code,salt);meta.salt=salt;meta.public=false;meta.sessions=[];meta.failed=0;meta.lockedUntil=0;
+      await storage.put('meta',meta);
+      return json({id:meta.id,public:false,code});
+    }
     if(path==='/access'&&request.method==='GET')return json({public:meta.public===true,...meta.public===true?{url:`/api/reports/${meta.id}/content`}:{}});
     if(path==='/unlock'&&request.method==='POST'&&meta.public===true)return json({public:true,url:`/api/reports/${meta.id}/content`});
     if(path==='/lock'&&request.method==='POST'){

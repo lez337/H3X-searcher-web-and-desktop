@@ -179,7 +179,7 @@ export function screenToWorld(x: number, y: number, c: Camera, width: number, he
     return flat ? p : unrotate(p, c);
 }
 export function layoutGraph(ids: string[], links: GraphLink[], flat = false): Record<string, Vec3> {
-    const n = ids.length, radius = Math.max(135, Math.sqrt(n) * 60), golden = Math.PI * (3 - Math.sqrt(5));
+    const n = ids.length, radius = Math.max(200, Math.sqrt(n) * 100), golden = Math.PI * (3 - Math.sqrt(5));
     const points = ids.map((_, i) => { const y = n === 1 ? 0 : 1 - 2 * (i + .5) / n, r = Math.sqrt(1 - y * y); return flat ? { x: Math.cos(i * golden) * Math.sqrt((i + 1) / Math.max(n, 1)) * radius, y: Math.sin(i * golden) * Math.sqrt((i + 1) / Math.max(n, 1)) * radius, z: 0 } : { x: Math.cos(i * golden) * r * radius, y: y * radius * .8, z: Math.sin(i * golden) * r * radius }; });
     const index = new Map(ids.map((id, i) => [id, i])), edges = links.map(l => [index.get(l.from), index.get(l.to)]).filter((e): e is [
         number,
@@ -191,7 +191,7 @@ export function layoutGraph(ids: string[], links: GraphLink[], flat = false): Re
         const force = points.map(() => ({ x: 0, y: 0, z: 0 }));
         for (let i = 0; i < n; i++)
             for (let j = i + 1 + step % stride; j < n; j += stride) {
-                const a = points[i], b = points[j], dx = a.x - b.x, dy = a.y - b.y, dz = flat ? 0 : a.z - b.z, d2 = Math.max(100, dx * dx + dy * dy + dz * dz), f = 1800 / d2;
+                const a = points[i], b = points[j], dx = a.x - b.x, dy = a.y - b.y, dz = flat ? 0 : a.z - b.z, d2 = Math.max(100, dx * dx + dy * dy + dz * dz), f = 4800 / d2;
                 force[i].x += dx * f;
                 force[i].y += dy * f;
                 force[i].z += dz * f;
@@ -200,7 +200,7 @@ export function layoutGraph(ids: string[], links: GraphLink[], flat = false): Re
                 force[j].z -= dz * f;
             }
         for (const [a, b] of edges) {
-            const dx = points[b].x - points[a].x, dy = points[b].y - points[a].y, dz = flat ? 0 : points[b].z - points[a].z, d = Math.hypot(dx, dy, dz) || 1, f = (d - 150) * .018;
+            const dx = points[b].x - points[a].x, dy = points[b].y - points[a].y, dz = flat ? 0 : points[b].z - points[a].z, d = Math.hypot(dx, dy, dz) || 1, f = (d - 240) * .018;
             for (const key of ['x', 'y', 'z'] as const) {
                 const amount = ({ x: dx, y: dy, z: dz })[key] / d * f;
                 force[a][key] += amount;

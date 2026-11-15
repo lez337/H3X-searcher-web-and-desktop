@@ -62,22 +62,29 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
             start?: Vec3;
             position?: Vec3;
             camera: Camera;
-        }, fitted: false });
+        }, fitted: false, target: null as Camera | null });
+    function moveCamera(camera: Camera) {
+        const e = engine.current;
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || e.width <= 1) {
+            e.camera = camera;
+            e.target = null;
+        } else e.target = camera;
+        e.dirty = true;
+    }
     function fit() {
         const e = engine.current, p = latest.current, visible = p.nodes.map(n => p.positions[n.id]).filter(Boolean);
+        if (e.width <= 1 || e.height <= 1) return;
         if (!visible.length) {
-            e.camera = { ...defaultCamera };
-            e.dirty = true;
+            moveCamera({ ...defaultCamera });
             return;
         }
         const base = { ...e.camera, panX: 0, panY: 0, zoom: 1 }, points = visible.map(v => project(v, base, e.width, e.height, p.flat));
         const left = Math.min(...points.map(v => v.x)), right = Math.max(...points.map(v => v.x)), top = Math.min(...points.map(v => v.y)), bottom = Math.max(...points.map(v => v.y));
         const zoom = clamp(Math.min((e.width - 160) / Math.max(160, right - left), (e.height - 180) / Math.max(160, bottom - top), 1.45), .05, 3);
-        e.camera = { ...base, zoom, panX: (e.width / 2 - (left + right) / 2) * zoom, panY: (e.height / 2 - (top + bottom) / 2) * zoom };
-        e.dirty = true;
+        moveCamera({ ...base, zoom, panX: (e.width / 2 - (left + right) / 2) * zoom, panY: (e.height / 2 - (top + bottom) / 2) * zoom });
     }
     useImperativeHandle(ref, () => ({ fit, focus(id) { const e = engine.current, p = latest.current.positions[id]; if (!p)
-            return; const v = project(p, { ...e.camera, panX: 0, panY: 0 }, e.width, e.height, latest.current.flat); e.camera.panX = e.width / 2 - v.x; e.camera.panY = e.height / 2 - v.y; e.dirty = true; }, zoom(factor) { engine.current.camera.zoom = clamp(engine.current.camera.zoom * factor, .05, 4); engine.current.dirty = true; }, exportImage() {
+            return; const v = project(p, { ...e.camera, panX: 0, panY: 0 }, e.width, e.height, latest.current.flat); moveCamera({ ...e.camera, panX: e.width / 2 - v.x, panY: e.height / 2 - v.y }); }, zoom(factor) { const c = engine.current.target || engine.current.camera; moveCamera({ ...c, zoom: clamp(c.zoom * factor, .05, 4) }); }, exportImage() {
             const el = canvas.current;
             if (!el)
                 return;
@@ -98,20 +105,32 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
             return;
         const e = engine.current, resize = new ResizeObserver(() => { const box = el.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2); e.width = box.width; e.height = box.height; el.width = Math.round(box.width * dpr); el.height = Math.round(box.height * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); fit(); e.dirty = true; });
         resize.observe(el);
-        const wheel = (event: WheelEvent) => { event.preventDefault(); const r = el.getBoundingClientRect(), x = event.clientX - r.left, y = event.clientY - r.top, old = e.camera.zoom, next = clamp(old * Math.exp(-clamp(event.deltaY, -160, 160) * .0015), .05, 4); e.camera.panX = (e.camera.panX + e.width / 2 - x) * (next / old) - e.width / 2 + x; e.camera.panY = (e.camera.panY + e.height / 2 - y) * (next / old) - e.height / 2 + y; e.camera.zoom = next; e.dirty = true; };
+        const wheel = (event: WheelEvent) => { event.preventDefault(); e.target = null; const r = el.getBoundingClientRect(), x = event.clientX - r.left, y = event.clientY - r.top, old = e.camera.zoom, next = clamp(old * Math.exp(-clamp(event.deltaY, -160, 160) * .0015), .05, 4); e.camera.panX = (e.camera.panX + e.width / 2 - x) * (next / old) - e.width / 2 + x; e.camera.panY = (e.camera.panY + e.height / 2 - y) * (next / old) - e.height / 2 + y; e.camera.zoom = next; e.dirty = true; };
         el.addEventListener('wheel', wheel, { passive: false });
-        let frame = 0, last = 0;
+        let frame = 0, last = 0, painted = 0;
         const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
         function draw(time: number) {
             frame = requestAnimationFrame(draw);
             const p = latest.current, dt = Math.min(50, time - last || 16);
             last = time;
+            if (e.target) {
+                const target = e.target, amount = motion.matches ? 1 : 1 - Math.exp(-dt / 85);
+                for (const key of ['yaw', 'pitch', 'zoom', 'panX', 'panY'] as const)
+                    e.camera[key] += (target[key] - e.camera[key]) * amount;
+                if (Object.keys(target).every(key => Math.abs(e.camera[key as keyof Camera] - target[key as keyof Camera]) < .001)) {
+                    e.camera = { ...target };
+                    e.target = null;
+                }
+                e.dirty = true;
+            }
             if (p.spinning && !p.flat && !e.drag && !motion.matches) {
                 e.camera.yaw += dt * .00012;
                 e.dirty = true;
             }
-            if (!e.dirty || !ctx)
+            const animated = !motion.matches && p.nodes.length > 0;
+            if ((!e.dirty && (!animated || time - painted < 1000 / 30)) || !ctx)
                 return;
+            painted = time;
             e.dirty = false;
             const w = e.width, h = e.height, c = e.camera;
             ctx.clearRect(0, 0, w, h);
@@ -140,7 +159,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                     }
                 ctx.restore();
             }
-            const nodes = p.nodes.map(node => { const pos = e.drag?.id === node.id && e.drag.position ? e.drag.position : p.positions[node.id] || { x: 0, y: 0, z: 0 }, s = project(pos, c, w, h, p.flat); return { node, ...s, radius: clamp(23 * s.scale, 15, 36) }; }).sort((a, b) => b.z - a.z);
+            const nodes = p.nodes.map(node => { const pos = e.drag?.id === node.id && e.drag.position ? e.drag.position : p.positions[node.id] || { x: 0, y: 0, z: 0 }, s = project(pos, c, w, h, p.flat); return { node, ...s, radius: clamp(32 * s.scale, 24, 44) }; }).sort((a, b) => b.z - a.z);
             e.nodes = nodes;
             const byId = new Map(nodes.map(n => [n.node.id, n])), selectedNode = p.selected?.kind === 'node' ? p.selected.id : null, selectedLink = p.selected?.kind === 'link' ? p.links.find(l => l.id === p.selected?.id) : null;
             // Prioritize nearby and selected labels; hide collisions instead of stacking text.
@@ -162,10 +181,10 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                 const active = labelPriority(s);
                 if (!p.labels && !active)
                     continue;
-                const text = s.node.label.length > 28 ? s.node.label.slice(0, 26) + '…' : s.node.label;
-                ctx.font = `${s.node.id === selectedNode ? '600' : '400'} 12px "Segoe UI", sans-serif`;
-                const width = ctx.measureText(text).width + 10;
-                const candidates = [{ x: s.x - width / 2, y: s.y + s.radius + 8, width, height: 20 }, { x: s.x - width / 2, y: s.y - s.radius - 28, width, height: 20 }];
+                const text = s.node.label.length > 42 ? s.node.label.slice(0, 40) + '…' : s.node.label;
+                ctx.font = '600 14px "Segoe UI", sans-serif';
+                const width = ctx.measureText(text).width + 20;
+                const candidates = [{ x: s.x - width / 2, y: s.y + s.radius + 10, width, height: 40 }, { x: s.x - width / 2, y: s.y - s.radius - 50, width, height: 40 }, { x: s.x + s.radius + 10, y: s.y - 20, width, height: 40 }, { x: s.x - s.radius - width - 10, y: s.y - 20, width, height: 40 }];
                 const box = active ? candidates[0] : candidates.find(box => box.x > 2 && box.x + box.width < w - 2 && box.y > 35 && box.y + box.height < h - 35 && !labelBoxes.some(other => overlaps(box, other)) && !touchesNode(box));
                 if (box) {
                     nodeLabels.set(s.node.id, { text, box, active: s.node.id === selectedNode });
@@ -194,15 +213,24 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                 const edge = { link: l, ax: a.x, ay: a.y, bx: b.x, by: b.y, cx: (a.x + b.x) / 2 - (b.y - a.y) / d * offset * sign, cy: (a.y + b.y) / 2 + (b.x - a.x) / d * offset * sign };
                 e.edges.push(edge);
                 const active = selectedLink?.id === l.id || l.from === selectedNode || l.to === selectedNode || e.hover?.kind === 'link' && e.hover.id === l.id;
-                ctx.globalAlpha = neighborhood.size && !active ? 0.22 : 1;
-                ctx.strokeStyle = active ? '#e6e6e6' : '#78787880';
-                ctx.lineWidth = active ? 1.7 : 1;
+                ctx.globalAlpha = neighborhood.size && !active ? 0.4 : 1;
+                ctx.strokeStyle = active ? '#ffffff' : '#a0a0a0';
+                ctx.lineWidth = active ? 2.5 : 1.5;
                 ctx.setLineDash(l.confidence === 'verified' ? [] : [4, 5]);
+                ctx.lineDashOffset = motion.matches ? 0 : -time / 100;
                 ctx.beginPath();
                 ctx.moveTo(a.x, a.y);
                 ctx.quadraticCurveTo(edge.cx, edge.cy, b.x, b.y);
                 ctx.stroke();
                 ctx.setLineDash([]);
+                ctx.lineDashOffset = 0;
+                if (!motion.matches) {
+                    const dot = pointOn(edge, .12 + (time % 3200) / 3200 * .76);
+                    ctx.fillStyle = '#eeeeee';
+                    ctx.beginPath();
+                    ctx.arc(dot.x, dot.y, active ? 3 : 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
                 const t = clamp(1 - (b.radius + 8) / d, .55, .94), tip = pointOn(edge, t), prev = pointOn(edge, t - .025), angle = Math.atan2(tip.y - prev.y, tip.x - prev.x);
                 ctx.fillStyle = active ? '#e6e6e6' : '#929292';
                 ctx.beginPath();
@@ -213,7 +241,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                 ctx.fill();
                 if (p.labels || active) {
                     const text = l.label.length > 30 ? l.label.slice(0, 28) + '…' : l.label;
-                    ctx.font = '10px "Segoe UI", sans-serif';
+                    ctx.font = '500 12px "Segoe UI", sans-serif';
                     const tw = ctx.measureText(text).width, candidates = [.5, .38, .62].map(t => { const v = pointOn(edge, t); return { x: v.x - tw / 2 - 7, y: v.y - 10, width: tw + 14, height: 20 }; }), box = active ? candidates[0] : candidates.find(box => !labelBoxes.some(other => overlaps(box, other)) && !touchesNode(box));
                     if (box) {
                         labelBoxes.push(box);
@@ -221,7 +249,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                         ctx.beginPath();
                         ctx.roundRect(box.x, box.y, box.width, box.height, 5);
                         ctx.fill();
-                        ctx.fillStyle = active ? '#e5e5e5' : '#a2a2a2';
+                        ctx.fillStyle = active ? '#ffffff' : '#dedede';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
                         ctx.fillText(text, box.x + box.width / 2, box.y + 10);
@@ -231,7 +259,14 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
             }
             for (const s of nodes) {
                 const { node: n, x, y, radius: r } = s, active = selectedNode === n.id, hover = e.hover?.kind === 'node' && e.hover.id === n.id, connected = neighborhood.has(n.id);
-                ctx.globalAlpha = neighborhood.size && !connected ? 0.3 : clamp(1 - s.z / 1800, .5, 1);
+                ctx.globalAlpha = neighborhood.size && !connected ? 0.45 : 1;
+                if (!motion.matches && (n.kind === 'Person' || active || hover)) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, r + 7 + Math.sin(time / 650) * 2, 0, Math.PI * 2);
+                    ctx.strokeStyle = n.color + '60';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
                 if (active || hover || p.connecting === n.id) {
                     const halo = ctx.createRadialGradient(x, y, r, x, y, r * 2.5);
                     halo.addColorStop(0, n.color + '28');
@@ -247,11 +282,11 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                     ctx.stroke();
                 }
                 const fill = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
-                fill.addColorStop(0, '#333333');
-                fill.addColorStop(1, '#131313');
+                fill.addColorStop(0, '#454545');
+                fill.addColorStop(1, '#202020');
                 ctx.fillStyle = fill;
-                ctx.strokeStyle = active ? n.color : hover ? '#cbcbcb' : n.color + '90';
-                ctx.lineWidth = active ? 1.8 : 1;
+                ctx.strokeStyle = active ? '#ffffff' : hover ? '#ffffff' : n.color;
+                ctx.lineWidth = active ? 2.5 : 1.5;
                 ctx.beginPath();
                 if (n.kind === 'Note' || n.kind === 'Organization' || n.kind === 'Investigation')
                     ctx.roundRect(x - r, y - r, r * 2, r * 2, clamp(r * .35, 4, 10));
@@ -262,17 +297,20 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
                 ctx.fillStyle = n.color;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.font = `600 ${clamp(r * .46, 10, 16)}px "Segoe UI", sans-serif`;
+                ctx.font = `600 ${clamp(r * .46, 13, 20)}px "Segoe UI", sans-serif`;
                 ctx.fillText(kindGlyph[n.kind] || '•', x, y);
                 const label = nodeLabels.get(n.id);
                 if (label) {
-                    ctx.font = `${label.active ? '600' : '400'} 12px "Segoe UI", sans-serif`;
-                    ctx.fillStyle = '#0a0a0ae6';
+                    ctx.font = '600 14px "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#151515f5';
                     ctx.beginPath();
                     ctx.roundRect(label.box.x, label.box.y, label.box.width, label.box.height, 4);
                     ctx.fill();
-                    ctx.fillStyle = label.active ? '#ffffff' : '#c9c9c9';
-                    ctx.fillText(label.text, label.box.x + label.box.width / 2, label.box.y + 10);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(label.text, label.box.x + label.box.width / 2, label.box.y + 13);
+                    ctx.font = '11px "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#bdbdbd';
+                    ctx.fillText(n.kind, label.box.x + label.box.width / 2, label.box.y + 29);
                 }
                 ctx.globalAlpha = 1;
             }
@@ -319,7 +357,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
         return closest;
     }
     return <canvas ref={canvas} className="graph-canvas" tabIndex={0} role="img" aria-label={`${props.flat ? '2D' : '3D'} relationship graph. ${props.nodes.length} entities and ${props.links.length} connections. Drag a node to move it. Drag the background to orbit, Shift-drag to pan, scroll to zoom. Right-click to add or edit. Use the entity list for keyboard access.`} onPointerDown={event => { if (event.button !== 0 && event.button !== 1)
-        return; const { x, y } = local(event), e = engine.current, target = hit(x, y); canvas.current!.focus(); canvas.current!.setPointerCapture(event.pointerId); e.drag = { pointer: event.pointerId, x, y, lastX: x, lastY: y, moved: false, mode: event.shiftKey || event.button === 1 ? 'pan' : target?.kind === 'node' ? 'node' : props.flat ? 'pan' : 'orbit', id: target?.kind === 'node' ? target.id : undefined, start: target?.kind === 'node' ? props.positions[target.id] : undefined, camera: { ...e.camera } }; }} onPointerMove={event => { const e = engine.current, { x, y } = local(event), d = e.drag; if (d) {
+        return; const { x, y } = local(event), e = engine.current, target = hit(x, y); e.target = null; canvas.current!.focus(); canvas.current!.setPointerCapture(event.pointerId); e.drag = { pointer: event.pointerId, x, y, lastX: x, lastY: y, moved: false, mode: event.shiftKey || event.button === 1 ? 'pan' : target?.kind === 'node' ? 'node' : props.flat ? 'pan' : 'orbit', id: target?.kind === 'node' ? target.id : undefined, start: target?.kind === 'node' ? props.positions[target.id] : undefined, camera: { ...e.camera } }; }} onPointerMove={event => { const e = engine.current, { x, y } = local(event), d = e.drag; if (d) {
         if (Math.hypot(x - d.x, y - d.y) > 4)
             d.moved = true;
         if (d.moved) {
@@ -355,7 +393,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
         else
             props.onSelect(target);
     } e.drag = null; e.dirty = true; if (canvas.current!.hasPointerCapture(event.pointerId))
-        canvas.current!.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { engine.current.drag = null; engine.current.dirty = true; }} onLostPointerCapture={() => { engine.current.drag = null; engine.current.dirty = true; }} onPointerLeave={() => { engine.current.hover = null; engine.current.dirty = true; }} onDoubleClick={event => { const { x, y } = local(event); props.onActivate(hit(x, y)); }} onContextMenu={event => { event.preventDefault(); const e = engine.current, { x, y } = local(event); props.onContext(event.clientX, event.clientY, hit(x, y), screenToWorld(x, y, e.camera, e.width, e.height, props.flat)); }} onKeyDown={event => { const e = engine.current; if (event.key === 'Escape') {
+        canvas.current!.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { engine.current.drag = null; engine.current.dirty = true; }} onLostPointerCapture={() => { engine.current.drag = null; engine.current.dirty = true; }} onPointerLeave={() => { engine.current.hover = null; engine.current.dirty = true; }} onDoubleClick={event => { const { x, y } = local(event); props.onActivate(hit(x, y)); }} onContextMenu={event => { event.preventDefault(); const e = engine.current, { x, y } = local(event); props.onContext(event.clientX, event.clientY, hit(x, y), screenToWorld(x, y, e.camera, e.width, e.height, props.flat)); }} onKeyDown={event => { const e = engine.current; e.target = null; if (event.key === 'Escape') {
         props.onSelect(null);
         return;
     } if (event.key.toLowerCase() === 'f') {

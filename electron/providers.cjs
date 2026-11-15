@@ -1,6 +1,7 @@
 'use strict';
 const net = require('node:net');
 const {inspectQuery}=require('./search-query.cjs');
+const {oathSession}=require('./oath-session.cjs');
 const OATH_BASE='https://oathnet.org/api/service/v2';
 const BRIX_URL='https://api.brixhub.ru/api/v1/search';
 const BRIX_FIELDS=new Set(['nom_famille','prenom','nom_affichage','nom_utilisateur','email','telephone','mobile','adresse_ip','discord_id','ville','code_postal','departement','region','pays','societe','profession','fonction','nom_naissance','jour_naissance','mois_naissance','annee_naissance','date_naissance','ville_naissance','genre','adresse','steam_id','fivem_license','xbl','live_id','fivem_license2','nir','iban','bic','vin']);
@@ -56,14 +57,15 @@ async function searchOath({query,settings,signal},key){
   if(!String(query||'').trim()&&!Object.values(settings?.oathFilters||{}).some(v=>Array.isArray(v)?v.length:typeof v==='object'&&v?Object.keys(v).length:!!String(v||'').trim()))throw Error('Enter a query or at least one OathNet filter.');
   const family=settings?.oathFamily==='stealer'?'stealer':'breach';
   const params=new URLSearchParams({...String(query||'').trim()?{q:cleanQuery(query)}:{},page_size:String(Math.min(100,Math.max(1,Number(settings?.pageSize)||20)))});
-  for(const [k,v] of Object.entries(settings?.oathOptions||{}))if(['sort','from','to','date_field','logic','cursor','filter_id','search_id','view','wildcard','has_log_id'].includes(k)&&v!==''&&v!=null)params.set(k,String(v));
+  for(const [k,v] of Object.entries(settings?.oathOptions||{}))if(['sort','from','to','date_field','logic','cursor','filter_id','view','wildcard','has_log_id'].includes(k)&&v!==''&&v!=null&&!(k==='wildcard'&&v===false)&&!(k==='has_log_id'&&family!=='stealer'))params.set(k,String(v));
   for(const [k,v] of Object.entries(settings?.oathFilters||{})){
-    if(['q','cursor','page_size'].includes(k)||v==null||v==='')continue;
+    if(['q','cursor','page_size','search_id'].includes(k)||v==null||v===''||Array.isArray(v)&&!v.length)continue;
     if(k==='filter'){const tree=typeof v==='string'?JSON.parse(v):v;if(Object.keys(tree).length){validateFilter(tree);params.set(k,JSON.stringify(tree));}}
     else if(Array.isArray(v))for(const entry of v)params.append(k.endsWith('[]')?k:k+'[]',String(entry));
     else if(typeof v!=='object')params.set(k,String(v));
   }
   if(settings?.cursor)params.set('cursor',String(settings.cursor).slice(0,512));
+  params.set('search_id',await oathSession(params.get('q')||JSON.stringify(settings?.oathFilters),key,{signal}));
   const data=await json(`${OATH_BASE}/${family}/search?${params}`,{headers:{'x-api-key':key},signal});
   if(data.success===false)throw new Error(String(data.message||'OathNet rejected the search.'));
   const payload=data.data||data;
@@ -77,6 +79,18 @@ async function searchBrix({query,settings,terms:explicitTerms,signal}){
   const filtersOnly=!String(query||'').trim();
   const info=filtersOnly?{field:'',query:''}:inspectQuery(query,settings?.searchQueryType||'auto');
   if(!explicitTerms&&info.type==='name')return searchBrixNames({query:'',settings,signal,name:info.query,dropDisplayFilter:false});
+  if(settings?.brixAutoSearch){
+    const items=[],seen=new Set();let result;
+    const firstPage=Math.max(1,Number(settings.page)||1);
+    for(let page=firstPage;page<firstPage+3;page++){
+      try{result=await searchBrix({query,terms:explicitTerms,signal,settings:{...settings,brixAutoSearch:false,pageSize:100,page}})}
+      catch(error){if(!items.length||signal?.aborted)throw error;return {items,meta:result.meta,notice:`BrixHub: later page failed; completed results retained. ${error.message}`}}
+      let added=0;
+      for(const item of result.items){const signature=JSON.stringify(item.fields);if(!seen.has(signature)){seen.add(signature);items.push({...item,id:'BrixHub-'+items.length});added++}}
+      if(!added||result.items.length<100||result.meta.pages!=null&&page>=result.meta.pages)break;
+    }
+    return {...result,items};
+  }
   const field=info.field;
   const q=filtersOnly?'':cleanQuery(info.query);
   const filters={};

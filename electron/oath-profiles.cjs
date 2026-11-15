@@ -1,4 +1,5 @@
 'use strict';
+const {oathSession}=require('./oath-session.cjs');
 
 // Contracts: https://docs.oathnet.org/guides/osint-lookups
 const services={roblox:{label:'Roblox',route:'roblox-userinfo'},discord:{label:'Discord',route:'discord-userinfo'},steam:{label:'Steam',route:'steam'},xbox:{label:'Xbox',route:'xbox'}};
@@ -83,7 +84,7 @@ async function searchProfile({query,settings={},profileKind='roblox',parameter,s
  if(!target)return {items:[],meta:{},notice:''};
  if(!key)throw Error('Add an OathNet API key in Settings to load account cards.');
  const params=new URLSearchParams({[target.parameter]:target.query});
- if(settings.oathOptions?.search_id)params.set('search_id',String(settings.oathOptions.search_id));
+ params.set('search_id',await oathSession(target.query,key,{signal,request}));
  const requestWithSignal=(url,options)=>{signal?.throwIfAborted();return request(url,{...options,signal:signal?AbortSignal.any([signal,options.signal]):options.signal})};
  const data=await lookup(service.route,params,key,requestWithSignal);
  if(data===null)return {items:[],meta:{},notice:`OathNet ${service.label}: no profile returned, or the lookup is unavailable.`};

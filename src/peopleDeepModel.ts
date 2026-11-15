@@ -16,7 +16,7 @@ export type DeepReviewGroup={id:string;person:SearchPerson;kind:DeepMatch['kind'
 
 const brixFields:Record<string,string>={email:'email',phone:'telephone',username:'nom_utilisateur',first_name:'prenom',last_name:'nom_famille',name:'nom_affichage',address:'adresse',ip:'adresse_ip',ip_address:'adresse_ip',adresse_ip:'adresse_ip',discord:'discord_id',discord_id:'discord_id',steam_id:'steam_id',fivem_license:'fivem_license',fivem_license2:'fivem_license2',xbl:'xbl',live_id:'live_id',vin:'vin'};
 const contextFields:Record<string,string>={first_name:'prenom',last_name:'nom_famille',date_of_birth:'date_naissance',city:'ville',postal_code:'code_postal',country:'pays',company:'societe',societe:'societe',occupation:'profession',profession:'profession',fonction:'fonction',region:'region',department:'departement',departement:'departement',birth_city:'ville_naissance',ville_naissance:'ville_naissance',gender:'genre',genre:'genre'};
-export const deepDefaults:DeepOptions={oath:true,brix:true,ghunt:typeof window!=='undefined'&&!!window.h3xDesktop,saveOath:true,mode:'both',savedFilters:false,followContacts:true,pages:1,related:true};
+export const deepDefaults:DeepOptions={oath:true,brix:true,ghunt:typeof window!=='undefined'&&!!window.h3xDesktop,saveOath:true,mode:'both',savedFilters:false,followContacts:true,pages:3,related:true};
 const text=(value:string)=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const name=(value:string)=>(text(value).match(/[\p{L}\p{N}]+/gu)||[]).sort().join(' ');
 const nameIsFull=(value:string)=>(text(value).match(/[\p{L}\p{N}]+/gu)||[]).length>=2;
@@ -43,7 +43,7 @@ export function makeDeepPlan(person:SearchPerson,terms:DeepTerm[],options:DeepOp
  const unique=(key:string)=>{const values=facts.filter(f=>f.key===key);return values.length===1?values[0].value:undefined};
  const brixContext:Record<string,unknown>={};for(const [key,field] of Object.entries(contextFields)){const value=unique(key);if(value)brixContext[field]=value}
  const seedName=deepTerms(person).find(t=>t.key==='name')?.value;if(seedName&&!brixContext.prenom&&!brixContext.nom_famille)brixContext.nom_affichage=seedName;
- // A filtered bulk pass accepts an exact seed contact or full name + birth date.
+ // A filtered OathNet pass accepts an exact seed contact or full name + birth date.
  const rules:any[]=terms.filter(t=>['email','phone'].includes(t.key)).map(t=>({field:t.key,operator:'eq',value:t.value}));
  if(seedName&&unique('date_of_birth'))rules.push({and:[{field:'full_name',operator:'eq',value:seedName},{field:'date_birth',operator:'eq',value:unique('date_of_birth')}]});
  const autoFilter=rules.length===1?rules[0]:rules.length?{or:rules}:undefined;

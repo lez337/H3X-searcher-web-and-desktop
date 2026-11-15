@@ -5,6 +5,7 @@ type Props={ready:boolean;busy:boolean;error:string;mode:'login'|'create';name:s
   onMode:(mode:'login'|'create')=>void;onName:(name:string)=>void;onKey:(key:string)=>void;onRemember:(value:boolean)=>void;onSaved:(value:boolean)=>void;onCopy:()=>void;onContinue:()=>void;onSubmit:(event:FormEvent)=>void};
 export default function LoginScreen(p:Props){
   const [visible,setVisible]=useState(false);
+  if(!p.ready)return <main className="web-login auth-page"><div className="auth-loading" role="status"><div className="auth-brand">H<span>3</span>X</div><span className="search-spinner" aria-hidden="true"/><p>Loading workspace…</p></div></main>;
   return <main className="web-login auth-page">
     <section className="web-login-card auth-card">
       <a className="auth-brand" href="/" aria-label="H3X home">H<span>3</span>X</a>

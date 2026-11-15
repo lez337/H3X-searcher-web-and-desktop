@@ -63,6 +63,11 @@ export async function accountReports(env,account,action,report){
 export async function rotateAccountKey(env,account,body){
   return internal(env,account.id,'/rotate-key',{token:account.token,currentKey:body.currentKey});
 }
+export async function deleteAccount(request,env,account,body){
+  const response=await internal(env,account.id,'/delete',{token:account.token,currentKey:body.currentKey});
+  if(!response.ok)return response;
+  return json({deleted:true},200,{'Set-Cookie':`${COOKIE}=; Max-Age=0${flags(request)}`});
+}
 export async function accountApiKey(env,account,action){
   return internal(env,account.id,'/api-key/'+action,{token:account.token});
 }
@@ -159,7 +164,7 @@ export class H3xAccount {
       return json({error:'API key route not found.'},404);
     }
     if(path==='/logout'){meta.sessions=meta.sessions.filter(s=>s!==session);await storage.put('account',meta);return json({ok:true});}
-    if(path==='/rotate-key'){
+    if(path==='/rotate-key'||path==='/delete'){
       if(typeof body.currentKey!=='string'||!/^\d{8}$/.test(body.currentKey))return json({error:'Enter your current 8-digit login code.'},400);
       let attempts=await storage.get('attempts')||{failed:0,lockedUntil:0};
       if(attempts.lockedUntil>now)return json({error:'Too many incorrect keys. Try again in 15 minutes.'},429);
@@ -168,6 +173,15 @@ export class H3xAccount {
       if(!timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(meta.keyHash,'hex'))){
         attempts.failed++;if(attempts.failed>=5)attempts.lockedUntil=now+LOCK_MS;
         await storage.put('attempts',attempts);return json({error:'The current login code is incorrect.'},400);
+      }
+      if(path==='/delete'){
+        const reports=await storage.get('reports')||[];
+        for(const report of reports){
+          const stub=this.env.INVESTIGATION_REPORTS.get(this.env.INVESTIGATION_REPORTS.idFromName(report.id));
+          const response=await stub.fetch(new Request('https://report.internal/delete',{method:'POST',headers:{'X-H3X-Report-Owner':meta.id}}));
+          if(!response.ok&&response.status!==404)return json({error:'Could not delete all shared reports. Try deleting your account again.'},503);
+        }
+        await storage.deleteAlarm();await storage.deleteAll();return json({deleted:true});
       }
       let key;do{key=generateAccountKey()}while(key===body.currentKey);
       const salt=Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('hex');

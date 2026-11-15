@@ -1,4 +1,3 @@
-import {setTimeout as delay} from 'node:timers/promises';
 import providers from '../electron/providers.cjs';
 import freeProviders from '../electron/free-providers.cjs';
 import profiles from '../electron/oath-profiles.cjs';
@@ -9,7 +8,7 @@ import geo from '../electron/geocoding.cjs';
 import {getCatalog,selection,checkBatch} from './username.mjs';
 import {createHostedReport,reportRoute,forwardReport} from './reports.mjs';
 export {InvestigationReport} from './reports.mjs';
-import {accountAuth,resolveAccount,accountWorkspace,accountReports,rotateAccountKey,accountApiKey,accountCredentials,accountProviderKeys} from './accounts.mjs';
+import {accountAuth,resolveAccount,accountWorkspace,accountReports,rotateAccountKey,deleteAccount,accountApiKey,accountCredentials,accountProviderKeys} from './accounts.mjs';
 import {credentialNames as credentials} from './credentials.mjs';
 import tree from '../electron/stealer-tree.cjs';
 import {discordApi} from './discord-api.mjs';
@@ -112,6 +111,7 @@ export default {
       if(path==='/api/reports'&&request.method==='GET')return await accountReports(env,account,'list');
       if(request.method!=='POST')return json({error:'Method not allowed.'},405,{'Allow':'POST'});
       if(path==='/api/account/key')return await rotateAccountKey(env,account,await readBody(request,4096));
+      if(path==='/api/account/delete')return await deleteAccount(request,env,account,await readBody(request,1024));
       if(path==='/api/reports')return await createHostedReport(await readBody(request,8*1024*1024),env,new URL(request.url).origin,account);
       if(shared&&['delete','discard'].includes(shared.action)){
         const response=await forwardReport(request,env,shared,await readBody(request,1024),account.id);
@@ -122,7 +122,7 @@ export default {
         }
         return response;
       }
-      if(shared&&shared.action==='activate')return await forwardReport(request,env,shared,await readBody(request,1024),account.id);
+      if(shared&&['activate','privatize'].includes(shared.action))return await forwardReport(request,env,shared,await readBody(request,1024),account.id);
       if(path!=='/api/rpc')return json({error:'API route not found.'},404);
       const payload=await readBody(request),p=payload.payload||{};
       const keys=['search','searchBatch','deepSearch','stealerTree'].includes(payload.action)?await accountProviderKeys(env,account):{};
@@ -146,7 +146,6 @@ export default {
           if(p.plan.longSearch||p.plan.tasks.length!==1)throw Error('Web deep search accepts one bounded task per request.');
           return streamOperation(request,(signal,emit)=>deep.runDeepSearch(p.plan,{key:keys.oathnet,signal,
             oath:(task,key,options)=>{let requests=0;return deep.oathBulk(task,key,{...options,
-              wait:(_ms,value,settings)=>delay(5000,value,settings),
               fetcher:(url,init)=>{if(++requests>40)throw Error('Web task request limit reached. Narrow the search.');return fetch(url,init)}
             })},
             progress:progress=>emit('deepProgress',{...progress,runId:p.runId})}),value=>redact(value,keys));

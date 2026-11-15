@@ -2,7 +2,7 @@ import {useEffect,useState,type FormEvent} from 'react';
 import {Download,Upload} from 'lucide-react';
 import App from '../App';
 import {clearSessionKeys,requestJson} from './bridge';
-import {loadWorkspace,saveWorkspace,openWorkspace,closeWorkspace,legacyWorkspace,syncStatus,accountId,refreshWorkspace,type SyncStatus} from './storage';
+import {loadWorkspace,saveWorkspace,openWorkspace,closeWorkspace,deleteLocalAccount,legacyWorkspace,syncStatus,accountId,refreshWorkspace,type SyncStatus} from './storage';
 import InstallApp from './InstallApp';
 import {download,pickFiles} from './files';
 import {validateState} from './state.mjs';
@@ -73,7 +73,11 @@ function WorkspaceApp(){
     const pending:Promise<unknown>[]=[];window.dispatchEvent(new CustomEvent('h3x-save-now',{detail:pending}));await Promise.all(pending);
     await requestJson('/api/logout',{});clearSessionKeys();closeWorkspace();setAccount(null);
   }catch(error){setError((error as Error).message)}finally{setBusy(false)}}
-  if(account)return <><App accountSettings={<AccountSettings account={account} sync={sync} busy={busy} onLogout={logout} onReports={()=>setShowReports(true)}/>} accountControl={onSettings=><AccountMenu account={account} sync={sync} onSettings={onSettings}/>}/><ReportShareDialog/>{showReports&&<HostedReports onClose={()=>setShowReports(false)}/>}{(error||sync.status==='error')&&<div className="web-account-error" role="alert">{error||sync.message}<button onClick={async()=>download(JSON.stringify(await loadWorkspace(),null,2),'H3X-unsaved-workspace.json','application/json')}><Download size={14}/>Download backup</button></div>}</>;
+  async function deleted(){
+    const id=account!.id;clearSessionKeys();closeWorkspace();setAccount(null);setShowReports(false);setName('');setKey('');setCreated(null);setError('');
+    try{await deleteLocalAccount(id)}catch{setError('Account deleted. Local browser data could not be cleared; clear this site’s data in your browser settings.');}
+  }
+  if(account)return <><App accountSettings={<AccountSettings account={account} sync={sync} busy={busy} onLogout={logout} onDeleted={deleted} onReports={()=>setShowReports(true)}/>} accountControl={onSettings=><AccountMenu account={account} sync={sync} onSettings={onSettings}/>}/><ReportShareDialog/>{showReports&&<HostedReports onClose={()=>setShowReports(false)}/>}{(error||sync.status==='error')&&<div className="web-account-error" role="alert">{error||sync.message}<button onClick={async()=>download(JSON.stringify(await loadWorkspace(),null,2),'H3X-unsaved-workspace.json','application/json')}><Download size={14}/>Download backup</button></div>}</>;
   return <LoginScreen ready={ready} busy={busy} error={error} mode={mode} name={name} accountKey={key} remember={remember} created={created} saved={saved} copied={copied} onMode={value=>{setMode(value);setKey('');setError('')}} onName={setName} onKey={setKey} onRemember={setRemember} onSaved={setSaved} onCopy={copyKey} onContinue={continueCreated} onSubmit={submit}/>;
 }
 export default function WebApp(){

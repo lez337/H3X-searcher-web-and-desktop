@@ -92,7 +92,7 @@ test('Deep web requests reject unbounded desktop plans',async()=>{
 test('Provider error messages cannot echo session API keys into the response',async()=>{
   const original=globalThis.fetch,key='synthetic-secret-not-for-output';
   await worker.fetch(new Request('https://h3x.example/api/account/credentials',{method:'POST',headers:{Cookie:fixtureCookie,'Content-Type':'application/json'},body:JSON.stringify({name:'oathnet',value:key})}),env);
-  globalThis.fetch=async()=>Response.json({success:false,message:'Rejected key '+key});
+  globalThis.fetch=async url=>Response.json(url.endsWith('/search/init')?{data:{session:{id:'sess_redaction'}}}:{success:false,message:'Rejected key '+key});
   try{
     const response=await api('search',{provider:'oathnet',query:'fixture@example.org',settings:{oathFamily:'breach'}},{body:{credentials:{oathnet:key}}});
     const text=await response.text();assert.ok(!text.includes(key));assert.ok(text.includes('[redacted]'));

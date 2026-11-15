@@ -21,6 +21,16 @@ const emitSync=(value:SyncStatus)=>{sync=value;window.dispatchEvent(new CustomEv
 export const syncStatus=()=>sync;
 export const accountId=()=>active?.id;
 export function closeWorkspace(){if(active)active.closed=true;active=undefined;}
+export async function deleteLocalAccount(id:string){
+  await pendingLog.catch(()=>{});
+  const db=await open();
+  await new Promise<void>((resolve,reject)=>{
+    const transaction=db.transaction('workspace','readwrite'),store=transaction.objectStore('workspace');
+    const request=store.openCursor(IDBKeyRange.bound(id+':',id+':\uffff'));
+    request.onsuccess=()=>{const cursor=request.result;if(cursor){cursor.delete();cursor.continue()}};
+    transaction.oncomplete=()=>resolve();transaction.onerror=()=>reject(transaction.error);transaction.onabort=()=>reject(transaction.error||Error('Local account cleanup failed.'));
+  });
+}
 async function remote(session:AccountWorkspace,body?:any){
   if(session.closed)throw Error('This account session has ended.');
   const response=await fetch('/api/workspace',{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-H3X-Account':session.id},body:body===undefined?undefined:JSON.stringify(body)});

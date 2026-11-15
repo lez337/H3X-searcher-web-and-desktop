@@ -17,7 +17,7 @@ test('IP alone never matches identity; IP tasks require independent identity fil
  const plan=makeDeepPlan(seed,deepTerms(seed),{...deepDefaults,longSearch:true},{});const ips=plan.tasks.filter(t=>t.field==='adresse_ip');assert.ok(ips.length);assert.ok(ips.every(t=>t.filtered&&t.filters.email==='alex@example.org'));assert.ok(plan.tasks.filter(t=>t.provider==='oathnet').every(t=>!t.terms.includes('8.8.8.8')));
 });
 test('filters-only requests omit query and guessed identity fields',async()=>{
- const old=global.fetch;const calls=[];global.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,text:async()=>JSON.stringify({data:{results:[],items:[]}})}};
+ const old=global.fetch;const calls=[];global.fetch=async(url,options)=>{if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_filter'}}});calls.push({url,options});return {ok:true,text:async()=>JSON.stringify({data:{results:[],items:[]}})}};
  try{await searchBrix({query:'',settings:{brixFilters:{nom_famille:'Example',ville:'Paris'}}});const body=JSON.parse(calls[0].options.body);assert.equal(body.nom_famille,'Example');assert.equal(body.nom_utilisateur,undefined);
  await searchOath({query:'',settings:{oathFamily:'breach',oathFilters:{last_name:['Example']}}},'key');const url=new URL(calls[1].url);assert.equal(url.searchParams.has('q'),false);assert.equal(url.searchParams.get('last_name[]'),'Example');
  await assert.rejects(searchBrix({query:'',settings:{}}),/at least one/);await assert.rejects(searchOath({query:'',settings:{oathFamily:'breach'}},'key'),/at least one/);

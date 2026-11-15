@@ -1,6 +1,19 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {graphNodes,graphLinks}=require('../src/graphModel.ts');
+test('planar person layout separates contact details without changing saved positions',()=>{
+ const {layoutGraph}=require('../src/graphModel.ts');
+ const ids=['person',...Array.from({length:8},(_,i)=>'detail'+i)];
+ const links=ids.slice(1).map(to=>({from:'person',to})), before=JSON.stringify(links);
+ const positions=layoutGraph(ids,links,true);
+ assert.deepEqual(layoutGraph(ids,links,true),positions);
+ for(const [i,a] of ids.entries()) {
+  assert.equal(positions[a].z,0);
+  for(const b of ids.slice(i+1)) assert.ok(Math.hypot(positions[a].x-positions[b].x,positions[a].y-positions[b].y)>180);
+ }
+ assert.equal(JSON.stringify(links),before);
+ assert.deepEqual(layoutGraph([],[],true),{});
+});
 const person={id:'p1',name:'Alex Example',phone:'+1 202 555 0142, +12025550143',altPhone:'+12025550142',email:'alex@example.org',username:'alex',dateOfBirth:'1990-06-15',address:'Example Street',notes:'Person notes',customCategories:[{id:'c',label:'Occupation',value:'Designer'}]};
 const record={cases:[{id:'case1',title:'Investigation',summary:'Summary',people:[person,{id:'p2',name:'Other Example',phone:'',notes:''}]}],pins:[],links:[],graph:{nodes:[],positions:{},hidden:[]}};
 test('investigations expand into people and unique connected details by default',()=>{

@@ -16,7 +16,6 @@ export default function UsernameSettings({settings,setting}:{settings:Record<str
   <label>Sites per search<select aria-label="Username search coverage" value={options.limit} onChange={event=>option('limit',event.target.value==='all'?'all':Number(event.target.value))}><option value="all">All eligible sites</option>{[100,500,2000].map(count=><option value={count} key={count}>{count.toLocaleString()} sites</option>)}</select></label>
   <label>Category<select aria-label="Username search category" value={options.category} onChange={event=>option('category',event.target.value)}><option value="">Every category (default)</option>{catalog?.categories.map(category=><option value={category} key={category}>{category}</option>)}</select></label>
   <label>Site filter<input aria-label="Limit username search to sites" placeholder="All sites; optionally enter a site name or domain" value={options.siteFilter} onChange={event=>option('siteFilter',event.target.value)}/></label>
-  <div className="button-row"><button onClick={()=>setting('usernameSearchOptions',{...defaultUsernameOptions})}>Reset to 100 sites</button></div>
   {catalog&&<small className="muted">{catalog.available.toLocaleString()} usable rules from {catalog.total.toLocaleString()} definitions. Catalog updated {new Date(catalog.snapshot.date).toLocaleDateString()}.</small>}
   {error&&<p className="muted" role="alert">{error}</p>}
 

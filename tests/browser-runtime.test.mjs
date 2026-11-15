@@ -56,8 +56,9 @@ test('Browser deep search splits tasks and combines progress without losing comp
     return new Response(JSON.stringify({type:'deepProgress',data:{runId:'deep-fixture',completed:1,total:1,items:[item]}})+'\n'+JSON.stringify({type:'result',data:{items:[item],completed:1,total:1,warnings:[],limited:false}})+'\n',{headers:{'Content-Type':'application/x-ndjson'}});
   };
   try{
-    const result=await bridge.deepSearch({runId:'deep-fixture',plan:{pages:1,tasks:[{provider:'brixhub'},{provider:'brixhub'}]}});
-    assert.equal(tasks.length,2);assert.ok(tasks.every(batch=>batch.length===1));assert.equal(result.items.length,2);assert.equal(result.completed,2);
+    const result=await bridge.deepSearch({runId:'deep-fixture',plan:{pages:1,tasks:[{provider:'brixhub'},{provider:'oathnet',terms:['first','second'],filters:{country:['FR']}}]}});
+    assert.equal(tasks.length,3);assert.ok(tasks.every(batch=>batch.length===1));assert.equal(result.items.length,3);assert.equal(result.completed,3);assert.equal(result.total,3);
+    assert.deepEqual(tasks.slice(1).map(batch=>batch[0].terms),[['first'],['second']]);assert.deepEqual(tasks[2][0].filters,{country:['FR']});
   }finally{globalThis.fetch=original}
 });
 test('Browser saves keys to the account and never attaches them to search requests',async()=>{

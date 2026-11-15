@@ -59,7 +59,22 @@ Telegram sessions remain encrypted by Windows on their device. Telegram and GHun
 
 ## GitHub and automatic updates
 
-GitHub Actions runs tests and production build checks, then builds the Windows installer for every push to `main`. Download the **H3X-Windows** workflow artifact. Pushing a `v<package version>` tag also creates a GitHub release with the installer and `SHA256SUMS.txt`; installed Windows apps check this repository for native-shell updates.
+GitHub Actions runs tests and production build checks, then builds both Windows installers for every push to `main`. Download the **H3X-Windows** workflow artifact. Pushing a `v<package version>` tag creates a GitHub release with `H3X-Setup.exe`, the versioned offline installer, and `SHA256SUMS.txt`. The website downloads the latest `H3X-Setup.exe`: it downloads and verifies the current desktop installer, installs silently, then offers **Start H3X**. Installed Windows apps check this repository for native-shell updates.
+
+From Windows, with Node.js, npm, Git, installed dependencies (`npm ci`), and GitHub push access configured, release a new version:
+
+```powershell
+npm run release -- 0.3.3 --dry-run
+npm run release -- 0.3.3
+```
+
+Choose a version newer than `package.json`. The dry run prints the commands without changing files or contacting GitHub. The release command requires `main` and the configured repository as `origin`. It checks for an existing tag and remote changes, updates the package and lockfile versions, runs tests/build/deploy dry run, builds both EXEs and checksums in `release/`, then **commits all non-ignored changes** and pushes `main` with the matching tag atomically. Review your changes before running it. A failed check stops publication; local version edits and build files remain for correction. GitHub Actions publishes the release after its checks pass; follow the Actions URL printed by the script. No GitHub CLI or token in source files is needed.
+
+To build both installers locally without committing or publishing:
+
+```powershell
+npm run release:build
+```
 
 Connect the existing Cloudflare Worker **h3x-web** to **lez337/H3X-searcher-web-and-desktop** under **Settings → Builds**. Use branch `main`, root `/`, build command `npm ci && npm test && npm run build`, and deploy command `npx wrangler deploy`. Keep `H3X_CREDENTIALS_KEY` as a runtime secret. This one-time Cloudflare repository connection is separate from the Git remote. The existing Wrangler login can deploy but does not grant Workers Builds Configuration permissions.
 

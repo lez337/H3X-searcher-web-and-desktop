@@ -5,6 +5,12 @@ const {extractEmails,searchWorkflow}=require('./search-workflow.cjs');
 const {parseGhunt,searchGhunt}=require('./public-providers.cjs');
 const {searchRoblox}=require('./oath-profiles.cjs');
 
+test('regular BrixHub searches enable automatic 300-record coverage',async()=>{
+ await searchWorkflow({providers:['brixhub'],query:'person@example.org',settings:{pageSize:20}},async task=>{
+  assert.equal(task.settings.brixAutoSearch,true);return {items:[]};
+ });
+});
+
 test('automatic email selection deduplicates contacts and ignores non-email fields and credentials',()=>{
  const items=[{source:'Example',fields:{email:['Person@example.org','other@example.org'],profile:{email_address:'third@example.org'},username:'fake@example.org',password:'secret@example.org',cookie:{email:'cookie@example.org'},phone:'+33123456789',url:'https://example.org/path@host.org',notes:'notes@example.org'}},{source:'OathNet · stealer',fields:{email:'stolen@example.org'}}];
  assert.deepEqual(extractEmails('person@example.org +33123456789',items).map(x=>x.toLowerCase()),['person@example.org','other@example.org','third@example.org']);
@@ -46,6 +52,7 @@ test('GHunt retains partial console results and never equates unavailable review
 });
 test('Oath public profile lookup maps documented fields and sends key only in header',async()=>{
  const result=await searchRoblox({query:'example_user'},'test-key',async(url,options)=>{
+  if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_roblox'}}});
   assert.equal(new URL(url).searchParams.get('username'),'example_user');assert.equal(options.headers['x-api-key'],'test-key');assert.ok(!url.includes('test-key'));
   return {ok:true,json:async()=>({success:true,data:{'Current Username':'example_user','Display Name':'Example','User ID':'123','Join Date':'2018-08-12','Old Usernames':'None','Avatar URL':'https://example.org/avatar.png',_meta:{used:2}}})};
  });assert.equal(result.items[0].profileType,'roblox');assert.equal(result.items[0].fields.profile_url,'https://www.roblox.com/users/123/profile');assert.equal(result.items[0].fields._meta,undefined);

@@ -47,7 +47,7 @@ export default function LinkGraph(props: Props) {
     const record: GraphRecord = { cases: props.cases, pins: props.pins, links: props.links, graph: { ...emptyGraph, ...props.graph } }, latest = useRef(record);
     latest.current = record;
     const scene = useRef<GraphCanvasHandle>(null), root = useRef<HTMLDivElement>(null), menuRef = useRef<HTMLDivElement>(null);
-    const [selected, setSelected] = useState<GraphTarget>(null), [query, setQuery] = useState(''), [filter, setFilter] = useState('All'), [flat, setFlat] = useState(false), [labels, setLabels] = useState(true), [spinning, setSpinning] = useState(false), [listOpen, setListOpen] = useState(true), [help, setHelp] = useState(false), [menu, setMenu] = useState<Menu | null>(null), [editor, setEditor] = useState<Editor | null>(null), [error, setError] = useState(''), [status, setStatus] = useState(''), [connecting, setConnecting] = useState<string | null>(null), [expanded, setExpanded] = useState(false);
+    const [selected, setSelected] = useState<GraphTarget>(null), [query, setQuery] = useState(''), [filter, setFilter] = useState('All'), [flat, setFlat] = useState(true), [labels, setLabels] = useState(true), [spinning, setSpinning] = useState(false), [listOpen, setListOpen] = useState(true), [help, setHelp] = useState(false), [menu, setMenu] = useState<Menu | null>(null), [editor, setEditor] = useState<Editor | null>(null), [error, setError] = useState(''), [status, setStatus] = useState(''), [connecting, setConnecting] = useState<string | null>(null), [expanded, setExpanded] = useState(false);
     const history = useRef<{
         past: GraphRecord[];
         future: GraphRecord[];
@@ -62,7 +62,7 @@ export default function LinkGraph(props: Props) {
     useEffect(() => { scene.current?.fit(); }, [visibleTopology]);
     const visibleIds = new Set(visibleNodes.map(n => n.id)), visibleLinks = allLinks.filter(l => visibleIds.has(l.from) && visibleIds.has(l.to));
     const topology = allNodes.map(n => n.id).join('|') + '::' + allLinks.map(l => l.from + '>' + l.to).join('|');
-    const generated = useMemo(() => layoutGraph(allNodes.map(n => n.id), allLinks), [topology]);
+    const generated = useMemo(() => layoutGraph(allNodes.map(n => n.id), allLinks, flat), [topology, flat]);
     const positions = useMemo(() => ({ ...generated, ...record.graph.positions }), [generated, record.graph.positions]);
     const activeNode = selected?.kind === 'node' ? allNodes.find(n => n.id === selected.id) : undefined, activeLink = selected?.kind === 'link' ? allLinks.find(l => l.id === selected.id) : undefined;
     const activeConnections = activeNode ? allLinks.filter(l => l.from === activeNode.id || l.to === activeNode.id) : [];
@@ -236,7 +236,7 @@ export default function LinkGraph(props: Props) {
     catch {
         setStatus('Full screen is unavailable in this window.');
     } }}><Maximize2 size={16}/></button></div>
-   <div className={'graph-body ' + (listOpen ? '' : 'graph-list-closed')}>
+   <div className={'graph-body ' + (listOpen ? '' : 'graph-list-closed ') + (selected ? '' : 'graph-inspector-closed')}>
     {listOpen && <aside className="graph-entity-panel"><div className="graph-panel-title"><span>ENTITIES</span><b>{visibleNodes.length}<span> / {allNodes.length}</span></b></div><div className="graph-entity-list">{visibleNodes.map(node => <div className="graph-entity-row" key={node.id}><button className={selected?.kind === 'node' && selected.id === node.id ? 'selected' : ''} onClick={() => connecting ? connectTo(node.id) : select({ kind: 'node', id: node.id })} aria-expanded={node.derived && node.kind === 'Person' ? expandedPeople.has(node.id) : undefined} onDoubleClick={() => focusNode(node.id)} onContextMenu={e => { e.preventDefault(); context(e.clientX, e.clientY, { kind: 'node', id: node.id }); }}><span className="graph-entity-glyph" style={{ color: node.color }}>{kindGlyph[node.kind]}</span><span><b>{node.label}</b><small>{node.kind}{node.derived && node.kind === 'Person' ? (expandedPeople.has(node.id) ? ' · Click to collapse' : ' · Click to expand') : ''}</small></span></button><button className="graph-entity-more" aria-label={'Options for ' + node.label} onClick={e => { const r = e.currentTarget.getBoundingClientRect(); context(r.right, r.bottom, { kind: 'node', id: node.id }); }}><MoreHorizontal size={15}/></button></div>)}{!visibleNodes.length && <p className="graph-list-empty">{allNodes.length ? 'No matching entities.' : 'Your entities will appear here.'}</p>}</div><div className="graph-entity-footer"><button onClick={() => addNode()}><Plus size={14}/> Add entity</button>{hiddenCount > 0 && <button onClick={() => changeGraph({ ...record.graph, hidden: [] }, 'Hidden entities restored.')}><Eye size={13}/> Restore {hiddenCount} hidden</button>}</div></aside>}
     <div className="graph-stage">
      <GraphCanvas ref={scene} nodes={visibleNodes} links={visibleLinks} positions={positions} selected={selected} flat={flat} labels={labels} spinning={spinning} connecting={connecting} onSelect={select} onMove={(id, position) => changeGraph({ ...record.graph, positions: { ...positions, [id]: position } }, 'Entity position saved.')} onContext={context} onActivate={target => target ? edit(target) : addNode()} onConnect={connectTo}/>
