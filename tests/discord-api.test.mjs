@@ -58,12 +58,12 @@ test('Selected connected names search BrixHub and both OathNet datasets with bou
     await new Promise(resolve=>setTimeout(resolve,1));active--;
     return {items:task.kind==='connected'?[{source:task.provider||'brixhub',fields:{username:task.query}}]:[]};
   });
-  assert.equal(tasks.length,13);assert.ok(maxActive<=4);
+  assert.equal(tasks.length,17);assert.ok(maxActive<=4);
   for(const name of ['linked.name','other.name']){
     const matches=tasks.filter(task=>task.kind==='connected'&&task.query===name);
-    assert.equal(matches.length,3);
+    assert.equal(matches.length,4);
     assert.equal(matches[0].field,'nom_utilisateur');
-    assert.deepEqual(matches.filter(task=>task.provider==='oathnet').map(task=>task.family),['breach','stealer']);
+    assert.deepEqual(matches.filter(task=>task.provider==='oathnet').map(task=>task.family),['breach','stealer','victims']);
   }
   assert.ok(result.items.every(item=>item.matchedBy==='connected'&&item.matchNote.includes(item.matchedQuery)));
 });
@@ -93,10 +93,10 @@ test('Lookups query both identifiers, deduplicate cards, redact secrets and reta
     if(task.kind==='profile')throw Error('upstream failed with private credential');
     return {items:[{id:'one',source:'Fixture',fields:{username:identity.username,password:'do-not-return'}}]};
   });
-  assert.equal(tasks.length,7);assert.equal(tasks[0].field,'discord_id');assert.equal(tasks[1].query,identity.username);
-  assert.deepEqual(tasks.filter(task=>task.provider==='oathnet').map(task=>[task.family,task.query]),[['breach',identity.userId],['breach',identity.username],['stealer',identity.userId],['stealer',identity.username]]);
+  assert.equal(tasks.length,9);assert.equal(tasks[0].field,'discord_id');assert.equal(tasks[1].query,identity.username);
+  assert.deepEqual(tasks.filter(task=>task.provider==='oathnet').map(task=>[task.family,task.query]),[['breach',identity.userId],['breach',identity.username],['stealer',identity.userId],['stealer',identity.username],['victims',identity.userId],['victims',identity.username]]);
   assert.equal(result.items.length,1);assert.equal(result.items[0].fields.password,'[redacted]');
-  assert.equal(result.providerStatus[6].status,'error');assert.match(result.notice,/incomplete/);
+  assert.equal(result.providerStatus[8].status,'error');assert.match(result.notice,/incomplete/);
   assert.ok(!JSON.stringify(result).includes('private credential'));
   const failed=await lookupDiscord(identity,{},new AbortController().signal,async()=>{throw Error('offline')});
   assert.equal(failed.items.length,0);assert.ok(failed.providerStatus.every(p=>p.status==='error'||p.status==='skipped'));
@@ -110,17 +110,17 @@ test('OathNet adapter calls breach and stealer for both identifiers and the Disc
     if(url.pathname.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_'+JSON.parse(options.body).query}}});
     assert.ok(url.searchParams.get('search_id'));
     if(url.pathname.endsWith('/discord-userinfo'))return Response.json({data:null});
-    assert.ok(['/api/service/v2/breach/search','/api/service/v2/stealer/search'].includes(url.pathname));
+    assert.ok(['/api/service/v2/breach/search','/api/service/v2/stealer/search','/api/service/v2/victims/search'].includes(url.pathname));
     assert.equal(url.searchParams.get('page_size'),'20');
     return Response.json({data:{items:[{username:identity.username,dataset:url.pathname,password:'hidden'}]}});
   };
   try{
     const result=await lookupDiscord(identity,{OATHNET_API_KEY:secret},new AbortController().signal);
     const searches=calls.filter(url=>url.pathname.endsWith('/search')&&url.hostname==='oathnet.org');
-    assert.equal(searches.length,4);
-    for(const family of ['breach','stealer'])assert.deepEqual(searches.filter(url=>url.pathname.includes('/'+family+'/')).map(url=>url.searchParams.get('q')),[identity.userId,identity.username]);
+    assert.equal(searches.length,6);
+    for(const family of ['breach','stealer','victims'])assert.deepEqual(searches.filter(url=>url.pathname.includes('/'+family+'/')).map(url=>url.searchParams.get('q')),[identity.userId,identity.username]);
     assert.equal(calls.filter(url=>url.pathname.endsWith('/discord-userinfo')).length,1);
-    assert.equal(result.items.length,2);assert.ok(result.items.every(item=>item.fields.password==='[redacted]'));
+    assert.equal(result.items.length,3);assert.ok(result.items.every(item=>item.fields.password==='[redacted]'));
     assert.ok(result.providerStatus.every(p=>p.status==='complete'));
     assert.ok(!JSON.stringify(result).includes(secret));
   }finally{globalThis.fetch=original;}

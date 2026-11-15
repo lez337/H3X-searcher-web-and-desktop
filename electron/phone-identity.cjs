@@ -26,7 +26,7 @@ function phoneKeys(values){
   const d=digits[i];
   if(/^(\+|00)/.test(v.trim()))return [v,d];
   const local=d.startsWith('0')?d.slice(1):d;
-  const candidates=[...new Set(international.filter(n=>n===d||(/^\d{8,12}$/.test(local)&&n.endsWith(local)&&n.length-local.length>=1&&n.length-local.length<=3)))];
+  const candidates=[...new Set(international.filter(n=>n===d||(/^\d{9,12}$/.test(local)&&n.endsWith(local)&&n.length-local.length>=1&&n.length-local.length<=3)))];
   const national=/^\d{8,12}$/.test(local)&&digits.includes('0'+local)?'0'+local:d;
   return [v,candidates.length===1?candidates[0]:candidates.length?d:national];
  }));

@@ -248,16 +248,13 @@ async function lookup(id, info, limit, key, request) {
 }
 
 function createFreeProviders({request = fetch, now = Date.now} = {}) {
-  const cache = new Map(), nextAllowed = new Map(), active = new Set();
+  const nextAllowed = new Map(), active = new Set();
   async function search({provider:id, query, settings = {}, signal}, key = '') {
     const provider = registry.get(id); if (!provider) throw Error('Unknown public API provider.');
     const info = queryInfo(query,settings.searchQueryType||'auto');
     if (!supports(id, info)) return {items:[],meta:{skipped:true,reason:'Query type does not match this provider.'},notice:''};
     if (provider.credential === 'required' && !key) throw Error('Add a free '+provider.label+' API key in Settings > Free APIs.');
     const limit = Math.min(50,Math.max(1,Math.floor(Number(settings.freeApiLimit)||10)));
-    const cacheKey = JSON.stringify([id,info.query,limit,crypto.createHash('sha256').update(key).digest('hex')]);
-    const cached = cache.get(cacheKey);
-    if (cached && now()-cached.time < 300000) return {...cached.result,meta:{...cached.result.meta,cached:true}};
     if (active.has(id)) throw Error('This provider already has a lookup in progress.');
     if ((nextAllowed.get(id)||0)>now()) throw Error('Provider rate limit: retry in '+Math.ceil((nextAllowed.get(id)-now())/1000)+' seconds.');
     active.add(id); nextAllowed.set(id,now()+({virustotal:15000,nvd:6000,emaildomain:1000}[id]||1000));
@@ -268,7 +265,6 @@ function createFreeProviders({request = fetch, now = Date.now} = {}) {
       const rows = array(result.rows), observedAt = new Date(now()).toISOString();
       const items = rows.slice(0,limit).map((row,index)=>({id:'free-'+id+'-'+crypto.createHash('sha256').update(info.query).digest('hex').slice(0,12)+'-'+index,source:provider.label,fields:Object.fromEntries(Object.entries(row).filter(([,value])=>value!=null&&value!=='')),query:info.query,observedAt}));
       const value = {items,meta:{shown:items.length,limited:rows.length>limit,observedAt},notice:result.notice||''};
-      cache.set(cacheKey,{time:now(),result:value}); if (cache.size>200) cache.delete(cache.keys().next().value);
       return value;
     } finally { active.delete(id); }
   }

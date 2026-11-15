@@ -46,3 +46,9 @@ Cards highlight the record name and source, with separate Identity, Contact, and
 Failed sources expand automatically with an HTTP status where available and guidance for authentication (401), access restrictions (403), rate limits (429), outages, or timeouts. A failed request is distinct from a successful search with zero matches. Retry search repeats all selected searches. Change search returns to the linked-account choice.
 
 These diagnostics require redeploying the Worker as well as updating the whole plugin folder and rebuilding Equicord. An OathNet 401 concerns the OathNet key saved in the owning H3X account; an H3X endpoint 401 concerns the integration key in plugin settings. A 403 may require checking the provider subscription or server access; the popup cannot change provider permissions.
+
+## Search selection
+
+Choose Username + Discord ID (default), Username only, or Discord ID only in the popup. ID-only disables linked usernames. Username-only skips ID queries and the OathNet Discord profile lookup. Rebuild Equicord and redeploy the H3X Worker to use these options.
+
+The endpoint accepts optional `searchBy`: `both`, `username`, or `id`. Omitting it preserves combined lookup behavior. Both identity fields remain request metadata; only the selected identifier is queried. ID-only requests must not include linked usernames. Responses echo an explicitly supplied `searchBy`.

@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {Search,ScanSearch,X,Download,FolderPlus,Trash2,Square,ChevronRight,AlertCircle} from 'lucide-react';
 import type {SearchPerson,PeopleItem} from './peopleModel';
-import {deepDefaults,deepTerms,makeDeepPlan,pendingDeepPlan,classifyDeepHits,classifyDeepNetwork,nextDeepSearchTerms,deepRecordGroups,reviewedPeople,discoveredContacts,providerFamily,type DeepOptions,type DeepProgress,type DeepMatches,type DeepReviewGroup,type ReviewFact} from './peopleDeepModel';
+import {deepDefaults,deepTerms,makeDeepPlan,pendingDeepPlan,classifyDeepNetwork,nextDeepSearchTerms,deepRecordGroups,reviewedPeople,keepSameNameFacts,providerFamily,type DeepOptions,type DeepProgress,type DeepMatches,type DeepReviewGroup,type ReviewFact} from './peopleDeepModel';
 import {exportSearchPerson,mergeSavedPeople} from './peopleExport';
 import {makePerson,type Case} from './Investigations';
 import CountryBadge from './CountryBadge';
@@ -10,19 +10,21 @@ import './people-deep.css';
 type Props={person:SearchPerson;open:boolean;credential:boolean;settings:Record<string,any>;excluded:string[];onOptionsChange:(patch:Partial<DeepOptions>)=>void;onClose:()=>void;onDiscard:()=>void;onSave:(people:SearchPerson[])=>void};
 const errorText=(error:unknown)=>error instanceof Error?error.message:String(error);
 export default function PeopleDeepSearch({person,open,credential,settings,excluded,onOptionsChange,onClose,onDiscard,onSave}:Props){
- const terms=useMemo(()=>deepTerms(person),[person]);
  const [options,setOptions]=useState<DeepOptions>(()=>{
-  const saved={...deepDefaults,keepSearching:true,...settings.deepSearchProviders,...settings.deepSearchOptions};
-  return {...saved,ghunt:!!window.h3xDesktop&&saved.ghunt,longSearch:false,oath:credential&&saved.oath,keepSearching:saved.keepSearching};
- }),[chosen,setChosen]=useState(new Set(terms.slice(0,24).map(t=>t.id)));
+  const saved={...deepDefaults,...settings.deepSearchProviders,...settings.deepSearchOptions};
+  return {...saved,ghunt:!!window.h3xDesktop&&saved.ghunt,oath:credential&&saved.oath,keepSearching:!!saved.longSearch,followContacts:false};
+ });
+ const terms=useMemo(()=>deepTerms(person,!!options.extendedSearch),[person,options.extendedSearch]);
+ const [chosen,setChosen]=useState(new Set(terms.map(t=>t.id)));
  const [phase,setPhase]=useState<'confirm'|'running'|'review'>('confirm'),[progress,setProgress]=useState<DeepProgress|null>(null),[groups,setGroups]=useState<DeepReviewGroup[]>([]),[matches,setMatches]=useState<DeepMatches>({same:[],related:[],unmatched:[]}),[warnings,setWarnings]=useState<string[]>([]),[limited,setLimited]=useState(false),[canceled,setCanceled]=useState(false),[followed,setFollowed]=useState(0),[round,setRound]=useState(0);
  const [showRelated,setShowRelated]=useState(true),[showUnmatched,setShowUnmatched]=useState(false),[groupLimit,setGroupLimit]=useState(20);
  const [filter,setFilter]=useState(''),[error,setError]=useState(''),[exporting,setExporting]=useState(false),[exported,setExported]=useState(false);
  const dialog=useRef<HTMLElement>(null),runId=useRef(''),locked=useRef(false),stopped=useRef(false),mounted=useRef(true),exportLock=useRef(false);
  const collected=useRef<PeopleItem[]>([]),publish=useRef((items:PeopleItem[])=>{});
- publish.current=(items)=>{collected.current=[...new Map([...collected.current,...items].map(item=>[item.id,item])).values()];const classified=classifyDeepNetwork(person,collected.current,!!options.keepSearching);setMatches(classified);setGroups(deepRecordGroups(person,classified,excluded))};
+ publish.current=(items)=>{collected.current=[...new Map([...collected.current,...items].map(item=>[item.id,item])).values()];const classified=classifyDeepNetwork(person,collected.current,!!options.keepSearching,!!options.extendedSearch);setMatches(classified);setGroups(deepRecordGroups(person,classified,excluded))};
  const selectedTerms=terms.filter(t=>chosen.has(t.id)),plan=useMemo(()=>makeDeepPlan(person,selectedTerms,options,settings),[person,chosen,options,settings]);
  const patchOption=(patch:Partial<DeepOptions>)=>{
+  if(patch.extendedSearch)setChosen(old=>new Set([...old,...deepTerms(person,true).map(term=>term.id)]));
   setOptions(old=>({...old,...patch}));
   onOptionsChange(patch);
  };
@@ -39,15 +41,19 @@ export default function PeopleDeepSearch({person,open,credential,settings,exclud
    const requests=new Set<string>();
    const execute=async(batch:typeof plan)=>{
     batch=pendingDeepPlan(batch,requests);if(!batch.tasks.length)return;
-    runId.current=crypto.randomUUID();setProgress({runId:runId.current,completed:0,total:batch.tasks.length,records:items.length,message:'Starting provider searches'});
-    const response=await window.h3x.deepSearch({runId:runId.current,plan:batch});
-    runId.current='';publish.current(response.items);items=collected.current;messages.push(...response.warnings);isLimited||=response.limited;wasCanceled||=response.canceled;
+    const tasks=batch.tasks.flatMap(task=>task.provider==='oathnet'?Array.from({length:Math.ceil((task.terms?.length||0)/36)},(_,i)=>({...task,terms:task.terms!.slice(i*36,(i+1)*36)})):[task]);
+    for(let offset=0;offset<tasks.length&&!stopped.current&&!wasCanceled&&mounted.current;offset+=84){
+     const part={...batch,tasks:tasks.slice(offset,offset+84)};
+     runId.current=crypto.randomUUID();setProgress({runId:runId.current,completed:0,total:part.tasks.length,records:items.length,message:'Starting provider searches'});
+     const response=await window.h3x.deepSearch({runId:runId.current,plan:part});
+     runId.current='';publish.current(response.items);items=collected.current;messages.push(...response.warnings);isLimited||=response.limited;wasCanceled||=response.canceled;
+    }
    };
    await execute(plan);
    if(options.keepSearching){
     const searched=[...selectedTerms];let count=0;
     while(!stopped.current&&!wasCanceled&&mounted.current){
-     const network=classifyDeepNetwork(person,collected.current,true),pending=nextDeepSearchTerms(network,searched);
+     const network=classifyDeepNetwork(person,collected.current,true,!!options.extendedSearch),pending=nextDeepSearchTerms(network,searched,!!options.extendedSearch);
      if(!pending.length)break;
      if(!options.longSearch&&(count>=10||searched.length>=120||collected.current.length>=5000)){messages.push('Keep searching reached its limit (10 follow-up rounds, 120 identifiers or 5,000 records).');isLimited=true;break}
      const found=pending.slice(0,options.longSearch?12:Math.min(12,120-searched.length));
@@ -57,13 +63,10 @@ export default function PeopleDeepSearch({person,open,credential,settings,exclud
      if(!batch.tasks.length)break;
      await execute(batch);
     }
-   }else if(options.followContacts&&!stopped.current&&!wasCanceled){
-    const trusted=classifyDeepHits(person,items),found=discoveredContacts(person,trusted.same,selectedTerms).slice(0,12);
-    if(found.length){setFollowed(found.length);setRound(1);await execute(makeDeepPlan(person,found,options,settings))}
    }
    if(!mounted.current)return;
-   const classified=classifyDeepNetwork(person,collected.current,!!options.keepSearching);setMatches(classified);setGroups(deepRecordGroups(person,classified,excluded));setPhase('review');
-  }catch(e){if(mounted.current){setError(errorText(e));const classified=classifyDeepNetwork(person,collected.current,!!options.keepSearching);setMatches(classified);setGroups(deepRecordGroups(person,classified,excluded));setPhase('review')}}
+   const classified=classifyDeepNetwork(person,collected.current,!!options.keepSearching,!!options.extendedSearch);setMatches(classified);setGroups(deepRecordGroups(person,classified,excluded));setPhase('review');
+  }catch(e){if(mounted.current){setError(errorText(e));const classified=classifyDeepNetwork(person,collected.current,!!options.keepSearching,!!options.extendedSearch);setMatches(classified);setGroups(deepRecordGroups(person,classified,excluded));setPhase('review')}}
   finally{runId.current='';locked.current=false;if(mounted.current){setWarnings([...new Set(messages)]);setLimited(isLimited);setCanceled(wasCanceled||stopped.current)}}
  }
  async function stop(){stopped.current=true;try{if(runId.current)await window.h3x.cancelDeepSearch(runId.current)}catch(e){setError(errorText(e))}}
@@ -74,6 +77,10 @@ export default function PeopleDeepSearch({person,open,credential,settings,exclud
  const visibleGroups=activeGroups.filter(group=>!filter||group.person.title.toLowerCase().includes(filter.toLowerCase())||group.rows.some(rowMatches)||group.matches.some(match=>match.reasons.join(' ').toLowerCase().includes(filter.toLowerCase())));
  function updateRows(groupId:string,change:(rows:ReviewFact[])=>ReviewFact[]){setExported(false);setGroups(old=>old.map(group=>group.id===groupId?{...group,rows:change(group.rows)}:group))}
  function keepAll(){const ids=new Set(activeGroups.map(group=>group.id));setExported(false);setGroups(old=>old.map(group=>ids.has(group.id)?{...group,rows:group.rows.map(row=>({...row,keep:!!row.value.trim()}))}:group))}
+ function keepSameName(){
+  setShowRelated(true);setShowUnmatched(true);setExported(false);
+  setGroups(old=>keepSameNameFacts(person,old));
+ }
  function renderRows(group:DeepReviewGroup){const visible=visibleRows(group);return <><div className="deep-report">{visible.map(row=><div className={'deep-fact'+(!row.keep?' deep-fact-muted':'')} key={row.id}>
   <input disabled={phase==='running'} type="checkbox" aria-label={`Keep ${row.label}: ${row.original}`} checked={row.keep} onChange={e=>updateRows(group.id,old=>old.map(r=>r.id===row.id?{...r,keep:e.target.checked}:r))}/>
   <label><span>{row.label}<small>{row.edited?'Edited':row.conflict?'Alternative':row.known?'Starting detail':row.corroborated?'Corroborated':'Single provider'}</small></span><textarea disabled={phase==='running'} rows={1} aria-label={`Edit ${row.label}: ${row.original}`} value={row.value} onChange={e=>updateRows(group.id,old=>old.map(r=>r.id===row.id?{...r,value:e.target.value,edited:true}:r))}/><small className="deep-sources">{new Set(row.sources.map(providerFamily)).size} provider {new Set(row.sources.map(providerFamily)).size===1?'family':'families'} · {row.sources.join(' / ')}</small></label>
@@ -106,17 +113,15 @@ export default function PeopleDeepSearch({person,open,credential,settings,exclud
    <div className="deep-provider-options"><label><input type="checkbox" checked={options.oath} disabled={!credential} onChange={e=>patchOption({oath:e.target.checked})}/><span>OathNet<small>{credential?'Breach identity records':'Add an API key in Settings'}</small></span></label><label><input type="checkbox" checked={options.brix} onChange={e=>patchOption({brix:e.target.checked})}/><span>BrixHub API</span></label><label><input type="checkbox" disabled={!window.h3xDesktop} checked={options.ghunt} onChange={e=>patchOption({ghunt:e.target.checked})}/><span>GHunt<small>Desktop only</small></span></label></div>
    <div className="deep-options"><label>Search passes<select aria-label="Deep search passes" value={options.mode} onChange={e=>patchOption({mode:e.target.value as DeepOptions['mode']})}><option value="both">With filters + without filters</option><option value="filtered">With identity filters</option><option value="unfiltered">Without filters</option></select></label><label>BrixHub depth<select aria-label="Deep search BrixHub depth" value={options.pages} onChange={e=>patchOption({pages:Number(e.target.value)})}><option value={1}>Up to 100 records per search</option><option value={3}>Up to 300 records per search</option></select></label></div>
    <fieldset className="deep-behavior"><legend>Search options</legend>
-    <label className="deep-check"><input type="checkbox" aria-label="Long search" disabled checked={false} onChange={e=>patchOption({longSearch:e.target.checked,...(e.target.checked?{keepSearching:true}:{})})}/><span>Long search<small>Desktop only</small></span></label>
+    <label>Search depth<select aria-label="Search depth" value={options.extendedSearch?'extended':options.longSearch?'long':'deep'} onChange={e=>patchOption({longSearch:e.target.value!=='deep',extendedSearch:e.target.value==='extended',keepSearching:e.target.value!=='deep',followContacts:false})}><option value="deep">Deep · starting information once</option><option value="long">Long · follow new connected information</option><option value="extended">Extended · follow and cross-check all findings</option></select></label>
     <label className="deep-check"><input type="checkbox" checked={options.savedFilters} disabled={options.mode==='unfiltered'} onChange={e=>patchOption({savedFilters:e.target.checked})}/><span>Apply saved provider filters</span></label>
     <label className="deep-check"><input type="checkbox" aria-label="Save OathNet searches" checked={options.saveOath!==false} disabled={!options.oath} onChange={e=>patchOption({saveOath:e.target.checked})}/><span>Save OathNet searches<small>One broad OathNet pass when both passes are selected</small></span></label>
     <label className="deep-check"><input type="checkbox" aria-label="Search for related people" checked={!!options.related} onChange={e=>patchOption({related:e.target.checked})}/><span>Find related people</span></label>
-    <label className="deep-check"><input type="checkbox" aria-label="Keep searching new information" checked={!!options.keepSearching} disabled={!!options.longSearch} onChange={e=>patchOption({keepSearching:e.target.checked})}/><span>Follow new emails, phones and addresses</span></label>
-    {!options.keepSearching&&<label className="deep-check"><input type="checkbox" checked={options.followContacts} onChange={e=>patchOption({followContacts:e.target.checked})}/><span>Follow new contacts once</span></label>}
    </fieldset>
-   {options.keepSearching&&<p className="deep-hint">{options.longSearch?'Search until no new identifiers remain. Stop at any time.':'Up to 10 follow-up rounds / 120 identifiers.'}</p>}
-   <div className="deep-section-title"><h3>Identifiers to search</h3><span>{selectedTerms.length} / 24 selected</span></div>
+   <p className="deep-hint">{options.keepSearching?'Search each new supported identifier once per provider and filter combination until no new identifiers remain. Stop at any time.':'Search starting identifiers once per provider and filter combination.'} Cross-checks show correlations; they do not verify ownership.</p>
+   <div className="deep-section-title"><h3>Identifiers to search</h3><span>{selectedTerms.length} selected</span></div>
 
-   <div className="deep-terms">{terms.map(term=><label key={term.id}><input type="checkbox" checked={chosen.has(term.id)} disabled={!chosen.has(term.id)&&chosen.size>=24} onChange={()=>setChosen(old=>{const next=new Set(old);next.has(term.id)?next.delete(term.id):next.add(term.id);return next})}/><small>{term.label}</small><span>{term.value}</span></label>)}</div>
+   <div className="deep-terms">{terms.map(term=><label key={term.id}><input type="checkbox" checked={chosen.has(term.id)} onChange={()=>setChosen(old=>{const next=new Set(old);next.has(term.id)?next.delete(term.id):next.add(term.id);return next})}/><small>{term.label}</small><span>{term.value}</span></label>)}</div>
    {!terms.length&&<p className="deep-alert">This person has no supported identifier to search.</p>}
    <details className="deep-plan"><summary>Preview {plan.tasks.length} search tasks<ChevronRight size={13}/></summary>{plan.tasks.map((task,i)=><div key={i}><b>{task.provider==='oathnet'?`OathNet · ${task.terms?.length} terms`:task.provider==='ghunt'?`GHunt · ${task.query}`:`BrixHub · ${task.query}`}</b><small>{task.filtered?'Filtered':'Unfiltered'}{Object.keys(task.filters).length?' · '+Object.keys(task.filters).join(', '):''}</small></div>)}</details>
 
@@ -131,7 +136,7 @@ export default function PeopleDeepSearch({person,open,credential,settings,exclud
    <label className="deep-review-filter"><Search size={15}/><input aria-label="Filter deep search findings" placeholder="Filter findings, labels, or sources" value={filter} onChange={e=>setFilter(e.target.value)}/></label>
    <label className="deep-check"><input type="checkbox" aria-label="Show related people" checked={showRelated} onChange={e=>{setShowRelated(e.target.checked);setExported(false)}}/> Show related people and possible connections ({matches.related.length} records)</label>
    <label className="deep-check"><input type="checkbox" aria-label="Show unmatched information" checked={showUnmatched} onChange={e=>{setShowUnmatched(e.target.checked);setExported(false)}}/> Show unmatched information ({matches.unmatched.length} records)</label>
-   <div className="deep-bulk-actions"><button disabled={phase==='running'} onClick={keepAll}>Keep all found information</button><span>{selectedRows.length} details · {review.length} {review.length===1?'person':'people'} selected</span></div>
+   <div className="deep-bulk-actions"><button disabled={phase==='running'} onClick={keepAll}>Keep all found information</button><button disabled={phase==='running'||!terms.some(term=>term.key==='name')} onClick={keepSameName}>Keep all information for the same full name</button><span>{selectedRows.length} details · {review.length} {review.length===1?'person':'people'} selected</span></div>
    <div className="deep-section-title"><h3>Found people</h3><span>{visibleGroups.length} {visibleGroups.length===1?'person':'people'}</span></div>
    <div className="deep-result-cards">{visibleGroups.slice(0,groupLimit).map(group=><article className={'deep-result-card deep-kind-'+group.kind} data-deep-kind={group.kind} key={group.id}>
     <header><div><small>{[...new Set(group.person.items.map(item=>item.source))].join(' / ')}</small><h3>{group.person.title}</h3></div><CountryBadge fields={group.person.items.map(item=>item.fields)}/></header>

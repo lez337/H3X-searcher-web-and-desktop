@@ -4,12 +4,12 @@ const providers=require('./providers.cjs');
 
 test('OathNet defaults to both datasets and reports a partial dataset failure',async()=>{
  const previous=global.fetch,requested=[];
- global.fetch=async url=>{if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_lookup'}}});requested.push(url);if(url.includes('/stealer/'))throw Error('Service unavailable');return {ok:true,text:async()=>JSON.stringify({data:{items:[{name:'Example'}]}})}};
+ global.fetch=async url=>{if(url.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_lookup'}}});requested.push(url);if(url.includes('/stealer/'))throw Error('Service unavailable');return {ok:true,text:async()=>JSON.stringify({data:{items:url.includes('/victims/')?[]:[{name:'Example'}]}})}};
  try{
   const result=await providers.searchOath({query:'example',settings:{}},'test-key');
-  assert.equal(requested.length,2);
+  assert.equal(requested.length,3);
   assert.equal(result.items.length,1);
-  assert.deepEqual(result.meta.datasets.map(d=>d.status),['complete','error']);
+  assert.deepEqual(result.meta.datasets.map(d=>d.status),['complete','error','complete']);
   assert.match(result.notice,/stealer unavailable: Service unavailable/);
   const {searchWorkflow}=require('./search-workflow.cjs');
   const batch=await searchWorkflow({providers:['oathnet'],query:'example',settings:{oathProfiles:false}},async()=>result);
@@ -55,6 +55,29 @@ test('lookup rows preserve text source labels and separate log references',async
 });
 const {searchWorkflow}=require('./search-workflow.cjs');
 
+test('combined search includes victim-only Discord matches and resumes their cursor independently',async()=>{
+ const previous=global.fetch,calls=[];
+ global.fetch=async input=>{
+  if(input.endsWith('/search/init'))return Response.json({data:{session:{id:'sess_victim_fixture'}}});
+  const url=new URL(input);calls.push(url);
+  const victim=url.pathname.includes('/victims/'),next=url.searchParams.has('cursor');
+  assert.equal(url.searchParams.get('q'),'123456789012345678');
+  return Response.json({data:{items:victim?[{log_id:'synthetic-log',device_users:['Fixture'],discord_ids:['123456789012345678'],password:'private',nested:{token:'private'}}]:[],next_cursor:victim&&!next?'victim-next':null}});
+ };
+ const search=task=>providers.searchOath(task,'victim-fixture-key');
+ try{
+  const first=await searchWorkflow({providers:['oathnet'],query:'123456789012345678',settings:{oathProfiles:false}},search);
+  assert.equal(first.items.length,1);assert.equal(first.items[0].source,'OathNet · stealer victims');
+  assert.equal(first.items[0].logId,'synthetic-log');assert.equal(first.items[0].fields.password,'[redacted]');
+  assert.equal(first.items[0].fields.nested.token,'[redacted]');
+  assert.deepEqual(first.meta.oathPagination.cursors,{victims:'victim-next'});
+  const next=await searchWorkflow({providers:['oathnet'],query:first.query,settings:{...first.meta.oathPagination.settings,oathProfiles:false,oathCursors:first.meta.oathPagination.cursors}},search);
+  assert.equal(calls.length,4);assert.ok(calls[3].pathname.endsWith('/victims/search'));
+  assert.equal(calls[3].searchParams.get('cursor'),'victim-next');assert.equal(next.meta.oathPagination,undefined);
+  assert.equal(first.items[0].id,next.items[0].id);
+ }finally{global.fetch=previous}
+});
+
 test('Oath pagination survives mixed providers and advances only unfinished datasets',async()=>{
  const previous=global.fetch,calls=[];
  global.fetch=async url=>{
@@ -68,7 +91,7 @@ test('Oath pagination survives mixed providers and advances only unfinished data
   const first=await searchWorkflow({providers:['oathnet','brixhub'],query:'example',settings:{oathProfiles:false,oathFilters:{country:['FR']}}},search);
   assert.deepEqual(first.meta.oathPagination.cursors,{stealer:'stealer-page-2'});
   const next=await searchWorkflow({providers:['oathnet'],query:first.query,settings:{...first.meta.oathPagination.settings,oathCursors:first.meta.oathPagination.cursors}},search);
-  assert.equal(calls.length,3);assert.deepEqual(calls[2],{family:'stealer',cursor:'stealer-page-2'});
+  assert.equal(calls.length,4);assert.deepEqual(calls[3],{family:'stealer',cursor:'stealer-page-2'});
   assert.equal(next.items.length,1);assert.equal(next.items[0].logId,'fixture-log');assert.equal(next.items[0].fields.password,'[redacted]');
   assert.ok(!first.items.some(item=>item.id===next.items[0].id));assert.equal(next.meta.oathPagination,undefined);
  }finally{global.fetch=previous}

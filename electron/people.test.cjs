@@ -94,10 +94,9 @@ test('duplicate rows and provider variants never inflate field confidence',()=>{
  assert.equal(detail(distinct,'email')[0].confidence,95);
 });
 
-test('conflicting facts remain visible as alternatives with lower scores',()=>{
- const [person]=groupPeople([item('a',{name:'Morgan Example',email:'one@example.org'}),item('b',{full_name:'Different Example',email_address:'one@example.org'},'Provider B')]);
- assert.equal(detail(person,'name').length,2);assert.ok(detail(person,'name').every(d=>d.conflict&&d.confidence===30));
- assert.equal(detail(person,'email')[0].confidence,65);assert.ok(person.warnings.some(w=>w.includes('alternatives')));
+test('different full names remain separate even with an exact shared contact',()=>{
+ const people=groupPeople([item('a',{name:'Morgan Example',email:'one@example.org'}),item('b',{full_name:'Different Example',email_address:'one@example.org'},'Provider B')]);
+ assert.equal(people.length,2);assert.ok(people.every(person=>person.items.length===1&&detail(person,'name').length===1));
 });
 
 test('nested contacts, numbered aliases and arrays deduplicate and preserve other facts',()=>{

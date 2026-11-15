@@ -1,5 +1,6 @@
 'use strict';
 const {isFrenchPhoneContext,uniquePhones,uniquePhoneFields}=require('./phone-identity.cjs');
+const {contactValues}=require('./contact-values.cjs');
 const defaults=['id','*_id','es_ids','timestamp','timestamps','created_at','updated_at','indexed_at','saved_at','createdAt','updatedAt','savedAt','password','token','cookie','session'];
 const normalize=k=>String(k).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/([a-z])([A-Z])/g,'$1_$2').toLowerCase().replace(/[\s.-]+/g,'_').replace(/^_+|_+$/g,'');
 function clean(fields,excluded=defaults){
@@ -29,7 +30,13 @@ function prepare(fields,excluded,current){
  function scalar(field,v){if(v==null||!String(v).trim())return;const text=String(v).trim();if(field in multi){if(/phone/i.test(field)){for(const number of text.split(/[,;\n]+/).map(v=>v.trim()))if(/^\+?[\d ().-]{3,}$/.test(number))multi[field].push(number)}else multi[field].push(text)}else if(field==='dateOfBirth'){const date=birthDate(text);if(date)patch[field]=date}else if(field==='age'){const m=text.match(/^(\d{1,3})(?:\s*(?:years?(?: old)?|ans?|anni))?$/i);if(m&&+m[1]<=125)patch.age=String(+m[1])}else patch[field]=text}
  function collect(field,v){if(Array.isArray(v))v.forEach(x=>collect(field,x));else if(v&&typeof v==='object'){for(const [k,value] of Object.entries(v))if(/^(value|number|address|username|email|phone)$/i.test(k))collect(field,value)}else scalar(field,v)}
  function visit(obj){for(const [key,v] of Object.entries(obj||{})){const k=normalize(key).replace(/_?\d+$/,'');const field=aliases[k];if(field)collect(field,v);else if(v&&typeof v==='object')visit(v);if(['jour_naissance','birth_day','day_of_birth'].includes(k))parts.day=Number(v);if(['mois_naissance','birth_month','month_of_birth'].includes(k))parts.month=Number(v);if(['annee_naissance','birth_year','year_of_birth'].includes(k))parts.year=Number(v)}}
- visit(filtered);for(const [field,values] of Object.entries(multi)){const combined=uniqueValues(values,/phone/i.test(field)?'phone':field);if(combined)patch[field]=combined}
+ visit(filtered);
+ function contacts(value,key=''){if(value&&typeof value==='object'){for(const [k,v] of Object.entries(value))contacts(v,key?key+'.'+normalize(k):normalize(k))}else{const found=contactValues(value,key);multi.email.push(...found.emails);if(!/(?:^|\.)(?:alt_phone|alternate_phone|altphone)(?:\.|$)/.test(key))multi.phone.push(...found.phones)}}
+ contacts(filtered);
+ // Apply canonical exclusions to contacts discovered under another category too.
+ const allowed=clean({email:true,phone:true},excluded);
+ if(!allowed.email)multi.email=[];if(!allowed.phone)multi.phone=[];
+ for(const [field,values] of Object.entries(multi)){const combined=uniqueValues(values,/phone/i.test(field)?'phone':field);if(combined)patch[field]=combined}
  if(!patch.dateOfBirth&&parts.year&&parts.month&&parts.day)patch.dateOfBirth=birthDate(`${parts.year}-${parts.month}-${parts.day}`);
  if(patch.dateOfBirth&&!patch.age){const today=new Date(),birth=new Date(patch.dateOfBirth+'T00:00:00Z');let age=today.getUTCFullYear()-birth.getUTCFullYear();if(today.getUTCMonth()<birth.getUTCMonth()||(today.getUTCMonth()===birth.getUTCMonth()&&today.getUTCDate()<birth.getUTCDate()))age--;if(age>=0&&age<=125)patch.age=String(age)}
  if(patch.name){const [surname,...given]=patch.name.split(/\s+/);patch.lastName??=surname;patch.firstName??=given.join(' ')}

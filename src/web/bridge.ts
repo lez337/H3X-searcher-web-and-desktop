@@ -97,7 +97,7 @@ async function deepSearch(p:any){
   const items=new Map<string,any>(),warnings:string[]=[];let completed=0,limited=false;
   let tasks=p.plan.tasks;
   try{
-    if(p.plan.longSearch||!Array.isArray(p.plan.tasks)||p.plan.tasks.length>84)throw Error('Choose a bounded web deep search with up to 84 tasks.');
+    if(!Array.isArray(p.plan.tasks)||!p.plan.tasks.length||p.plan.tasks.length>84)throw Error('Choose up to 84 deep-search tasks.');
     tasks=p.plan.tasks.flatMap((task:any)=>task.provider==='oathnet'&&Array.isArray(task.terms)?task.terms.map((term:string)=>({...task,terms:[term]})):[task]);
     for(const task of tasks){
       if(controller.signal.aborted)break;
@@ -106,15 +106,25 @@ async function deepSearch(p:any){
         catch(error){warnings.push((error as Error).message);completed++;}
         continue;
       }
-      const result=await rpc('deepSearch',{...p,plan:{...p.plan,tasks:[task]}},controller.signal,(type,progress)=>{
-        if(type==='deepProgress'){for(const item of progress.items||[])items.set(item.id,item);emit('deep',{...progress,completed:completed+progress.completed,total:tasks.length,records:items.size})}
-      });
-      for(const item of result.items)items.set(item.id,item);warnings.push(...result.warnings);limited||=result.limited;completed++;
-      if(items.size>=5000){limited=true;warnings.push('Web deep search retained the first 5,000 records.');break}
+      let page=1;const seenPages=new Set<string>();
+      while(!controller.signal.aborted){
+       const plan={...p.plan,longSearch:false,pages:p.plan.longSearch?1:p.plan.pages,tasks:[task],...(task.provider==='brixhub'?{startPage:page}:{})};
+       const result=await rpc('deepSearch',{...p,plan},controller.signal,(type,progress)=>{
+         if(type==='deepProgress'){for(const item of progress.items||[])items.set(item.id,item);emit('deep',{...progress,completed:completed+progress.completed,total:tasks.length,records:items.size})}
+       });
+       for(const item of result.items)items.set(item.id,item);warnings.push(...result.warnings);
+       if(!p.plan.longSearch){limited||=result.limited;break}
+       if(task.provider!=='brixhub'||!result.nextPage){limited||=result.limited;break}
+       const fingerprint=JSON.stringify(result.items.map((item:any)=>item.id).sort());
+       if(seenPages.has(fingerprint)){limited=true;warnings.push('BrixHub repeated a page; pagination stopped.');break}
+       seenPages.add(fingerprint);page=result.nextPage;
+      }
+      completed++;
+      if(!p.plan.longSearch&&items.size>=5000){limited=true;warnings.push('Web deep search retained the first 5,000 records.');break}
     }
   }catch(error){if(!controller.signal.aborted){if(!items.size)throw error;warnings.push((error as Error).message)}}
   finally{runs.delete(p.runId)}
-  return {items:[...items.values()].slice(0,5000),completed,total:tasks.length,canceled:controller.signal.aborted,warnings,limited};
+  return {items:p.plan.longSearch?[...items.values()]:[...items.values()].slice(0,5000),completed,total:tasks.length,canceled:controller.signal.aborted,warnings,limited};
 }
 const desktop=async()=>{throw Error('This integration requires the Windows desktop application.')};
 let creatingReport=false;

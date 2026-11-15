@@ -7,7 +7,7 @@ function registerFileScanner({ipcMain,dialog,getWindow,log}){
  ipcMain.handle('file:cancel',event=>{const job=jobs.get(event.sender.id);if(!job)return false;job.canceled=true;job.worker?.terminate();return true});
  ipcMain.handle('file:scan',async(event,payload={})=>{
   const id=event.sender.id;if(jobs.has(id))throw Error('A file scan is already running.');
-  const kinds=Array.isArray(payload.kinds)?payload.kinds.filter(kind=>kindsList.includes(kind)):kindsList;
+  const kinds=Array.isArray(payload.kinds)?payload.kinds.filter(kind=>kindsList.includes(kind)):kindsList.filter(kind=>!['token','cookie','password'].includes(kind));
   if(!kinds.length)throw Error('Select at least one field to scan.');
   const options={kinds,query:String(payload.query||'').slice(0,200),minConfidence:Math.max(0,Math.min(100,Number(payload.minConfidence)||0)),limit:Math.max(1,Math.min(3000,Math.trunc(Number(payload.limit)||1000)))};
   const job={worker:null,canceled:false};jobs.set(id,job);

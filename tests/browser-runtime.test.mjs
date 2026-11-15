@@ -24,6 +24,19 @@ test('Browser ZIP worker scans text entries and skips unsupported contents',asyn
   const result=await scan([new File([await zip.generateAsync({type:'uint8array'})],'fixture.zip')]);
   assert.equal(result.filesScanned,1);assert.equal(result.hits[0].value,'zip-fixture@example.org');assert.ok(result.warnings.some(warning=>/Unsupported/.test(warning.message)));
 });
+
+test('Browser ZIP worker extracts opted-in credentials and rejects gibberish person fields',async()=>{
+  const zip=new JSZip();zip.file('Tokens.txt','syntheticToken');
+  zip.file('Cookies.json',JSON.stringify([{domain:'example.org',name:'Fake Person',value:'syntheticCookie'}]));
+  zip.file('Passwords.txt','password: syntheticPassword');
+  zip.file('people.txt','name: Xqztrpkl Bcdfghjk\nusername: qwrtypzlk\nname: Élodie Martin\nusername: @valid_user');
+  const files=[new File([await zip.generateAsync({type:'uint8array'})],'details.zip')];
+  const ordinary=await scan(files,{kinds:['name','username']});
+  assert.deepEqual(Array.from(ordinary.hits,hit=>hit.value),['Élodie Martin','valid_user']);
+  const result=await scan(files,{kinds:['token','cookie','password','name','username']});
+  assert.deepEqual(Array.from(result.hits,hit=>hit.value),['syntheticToken','syntheticCookie','syntheticPassword','Élodie Martin','valid_user']);
+  assert.equal(result.hits[1].file,'details.zip/Cookies.json');
+});
 test('Browser ZIP worker bounds decompression rather than trusting compressed size',async()=>{
   const zip=new JSZip();zip.file('oversized.txt','x'.repeat(21*1024*1024));
   const result=await scan([new File([await zip.generateAsync({type:'uint8array',compression:'DEFLATE'})],'bounded.zip')]);
@@ -60,6 +73,35 @@ test('Browser deep search splits tasks and combines progress without losing comp
     assert.equal(tasks.length,3);assert.ok(tasks.every(batch=>batch.length===1));assert.equal(result.items.length,3);assert.equal(result.completed,3);assert.equal(result.total,3);
     assert.deepEqual(tasks.slice(1).map(batch=>batch[0].terms),[['first'],['second']]);assert.deepEqual(tasks[2][0].filters,{country:['FR']});
   }finally{globalThis.fetch=original}
+});
+
+test('Long search uses bounded account requests and follows Brix continuation pages',async()=>{
+ const original=globalThis.fetch,calls=[];
+ globalThis.fetch=async(_url,options)=>{
+  const {payload}=JSON.parse(options.body),plan=payload.plan;calls.push(plan);
+  assert.equal(plan.longSearch,false);assert.equal(plan.pages,1);assert.equal(plan.tasks.length,1);
+  const page=plan.startPage,item={id:'page-'+Math.min(page,4),fields:{page:Math.min(page,4)}};
+  return Response.json({items:[item],warnings:[],limited:true,nextPage:page+1});
+ };
+ try{
+  const result=await bridge.deepSearch({runId:'long-fixture',plan:{pages:0,longSearch:true,tasks:[{provider:'brixhub'}]}});
+  assert.deepEqual(calls.map(plan=>plan.startPage),[1,2,3,4,5]);assert.equal(result.items.length,4);assert.match(result.warnings.join(' '),/repeated a page/);
+ }finally{globalThis.fetch=original}
+});
+
+test('Stopping a long search retains completed pages and cancels the active account request',async()=>{
+ const original=globalThis.fetch;let signalReady;
+ const ready=new Promise(resolve=>signalReady=resolve);
+ globalThis.fetch=async(_url,options)=>{
+  const {payload}=JSON.parse(options.body);
+  if(payload.plan.startPage===1)return Response.json({items:[{id:'retained-page'}],warnings:[],limited:true,nextPage:2});
+  return new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(new DOMException('Canceled','AbortError')),{once:true});signalReady()});
+ };
+ try{
+  const pending=bridge.deepSearch({runId:'long-stop',plan:{pages:0,longSearch:true,tasks:[{provider:'brixhub'}]}});
+  await ready;await bridge.cancelDeepSearch('long-stop');const result=await pending;
+  assert.equal(result.canceled,true);assert.equal(result.items[0].id,'retained-page');
+ }finally{globalThis.fetch=original}
 });
 test('Browser saves keys to the account and never attaches them to search requests',async()=>{
   const original=globalThis.fetch;const captured=[];

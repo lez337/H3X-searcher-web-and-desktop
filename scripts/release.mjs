@@ -5,13 +5,14 @@ import {fileURLToPath} from 'node:url';
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 const manifest=JSON.parse(readFileSync('package.json','utf8'));
 const args=process.argv.slice(2);
-const version=args[0];
-const dryRun=args[1]==='--dry-run';
+const dryRun=args.at(-1)==='--dry-run';
+if(dryRun)args.pop();
+const version=args[0]??manifest.version.split('.').map((value,index)=>index===2?Number(value)+1:value).join('.');
 const run=(command,values,capture=false)=>execFileSync(command,values,{stdio:capture?'pipe':'inherit',encoding:'utf8'});
 const git=(...values)=>run('git',values,true).trim();
 
 try{
-  if(args.length>(dryRun?2:1)||!/^\d+\.\d+\.\d+$/.test(version||''))throw Error('Usage: npm run release -- 0.3.3 [--dry-run]');
+  if(args.length>1||!/^\d+\.\d+\.\d+$/.test(version||''))throw Error('Usage: npm run release [-- <version>] [--dry-run]');
   const newer=version.split('.').map(Number);
   const current=manifest.version.split('.').map(Number);
   const difference=newer.findIndex((value,index)=>value!==current[index]);

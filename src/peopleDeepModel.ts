@@ -1,11 +1,11 @@
 import {groupPeople,personFacts,type PeopleItem,type SearchPerson,type PersonFact} from './peopleModel.ts';
 import {phoneKeys} from './phoneIdentity.ts';
-import {mergeSearchPeople} from './peopleMerge.ts';
+import {mergeSearchPeople,personNameKey} from './peopleMerge.ts';
 
-export type DeepTerm={id:string;key:string;label:string;value:string;brixField:string};
-export type DeepOptions={oath:boolean;brix:boolean;ghunt?:boolean;saveOath?:boolean;mode:'both'|'filtered'|'unfiltered';savedFilters:boolean;followContacts:boolean;pages:number;related?:boolean;keepSearching?:boolean;longSearch?:boolean};
+export type DeepTerm={id:string;key:string;label:string;value:string;brixField:string;context?:Record<string,string>};
+export type DeepOptions={oath:boolean;brix:boolean;ghunt?:boolean;saveOath?:boolean;mode:'both'|'filtered'|'unfiltered';savedFilters:boolean;followContacts:boolean;pages:number;related?:boolean;keepSearching?:boolean;longSearch?:boolean;extendedSearch?:boolean};
 export type DeepTask={provider:'oathnet'|'brixhub'|'ghunt';query?:string;terms?:string[];field?:string;family?:'breach';filtered:boolean;filters:Record<string,unknown>;options?:Record<string,unknown>;settings?:{ghuntPath?:string}};
-export type DeepPlan={tasks:DeepTask[];pages:number;longSearch?:boolean};
+export type DeepPlan={tasks:DeepTask[];pages:number;longSearch?:boolean;startPage?:number};
 export type DeepProgress={runId:string;completed:number;total:number;records:number;message:string;items?:PeopleItem[]};
 export type DeepRun={items:PeopleItem[];completed:number;total:number;canceled:boolean;warnings:string[];limited:boolean};
 export type DeepHit={item:PeopleItem;reasons:string[]};
@@ -16,7 +16,7 @@ export type DeepReviewGroup={id:string;person:SearchPerson;kind:DeepMatch['kind'
 
 const brixFields:Record<string,string>={email:'email',phone:'telephone',username:'nom_utilisateur',first_name:'prenom',last_name:'nom_famille',name:'nom_affichage',address:'adresse',ip:'adresse_ip',ip_address:'adresse_ip',adresse_ip:'adresse_ip',discord:'discord_id',discord_id:'discord_id',steam_id:'steam_id',fivem_license:'fivem_license',fivem_license2:'fivem_license2',xbl:'xbl',live_id:'live_id',vin:'vin'};
 const contextFields:Record<string,string>={first_name:'prenom',last_name:'nom_famille',date_of_birth:'date_naissance',city:'ville',postal_code:'code_postal',country:'pays',company:'societe',societe:'societe',occupation:'profession',profession:'profession',fonction:'fonction',region:'region',department:'departement',departement:'departement',birth_city:'ville_naissance',ville_naissance:'ville_naissance',gender:'genre',genre:'genre'};
-export const deepDefaults:DeepOptions={oath:true,brix:true,ghunt:typeof window!=='undefined'&&!!window.h3xDesktop,saveOath:true,mode:'both',savedFilters:false,followContacts:true,pages:3,related:true};
+export const deepDefaults:DeepOptions={oath:true,brix:true,ghunt:typeof window!=='undefined'&&!!window.h3xDesktop,saveOath:true,mode:'both',savedFilters:false,followContacts:false,keepSearching:false,pages:3,related:true};
 const text=(value:string)=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const name=(value:string)=>(text(value).match(/[\p{L}\p{N}]+/gu)||[]).sort().join(' ');
 const nameIsFull=(value:string)=>(text(value).match(/[\p{L}\p{N}]+/gu)||[]).length>=2;
@@ -26,9 +26,17 @@ function factsFor(person:SearchPerson):PersonFact[]{
  for(const d of person.details)if(!d.conflict)(fields[d.key]??=[]).push(d.value);
  return personFacts({id:'seed',source:'Seed',fields});
 }
-export function deepTerms(person:SearchPerson):DeepTerm[]{
- const facts=factsFor(person),terms:DeepTerm[]=[],seen=new Set<string>();
- const add=(fact:PersonFact)=>{const field=brixFields[fact.key.split('.').at(-1)!];if(!field||fact.value.length>150||fact.value.length<3||fact.key==='name'&&!nameIsFull(fact.value))return;const id=field+':'+fact.normalized;if(!seen.has(id)){seen.add(id);terms.push({id,key:fact.key,label:fact.label,value:fact.value,brixField:field})}};
+export function deepTerms(person:SearchPerson,extended=false):DeepTerm[]{
+ const fields:Record<string,string[]>={};for(const detail of person.details)(fields[detail.key]??=[]).push(detail.value);
+ const facts=extended?personFacts({id:person.id,source:'Search',fields}):factsFor(person),terms:DeepTerm[]=[],seen=new Set<string>();
+ const context:Record<string,string>={};
+ for(const key of ['email','phone','name']){const values=facts.filter(f=>f.key===key);if(values.length===1&&(key!=='name'||nameIsFull(values[0].value)))context[brixFields[key]]=values[0].value}
+ const add=(fact:PersonFact)=>{
+  const leaf=fact.key.split('.').at(-1)!,field=brixFields[leaf]||(extended?contextFields[leaf]:undefined),weak=!brixFields[leaf];
+  if(!field||fact.value.length>150||fact.value.length<3||fact.key==='name'&&!nameIsFull(fact.value)||weak&&!Object.keys(context).length)return;
+  const id=field+':'+fact.normalized+(weak?':'+JSON.stringify(context):'');
+  if(!seen.has(id)){seen.add(id);terms.push({id,key:fact.key,label:fact.label,value:fact.value,brixField:field,...(weak?{context}:{})})}
+ };
  for(const key of ['email','phone','username','name','address'])facts.filter(f=>f.key===key).forEach(add);
  if(!terms.some(t=>t.key==='name')){
   const first=facts.find(f=>f.key==='first_name'),last=facts.find(f=>f.key==='last_name');
@@ -53,11 +61,11 @@ export function makeDeepPlan(person:SearchPerson,terms:DeepTerm[],options:DeepOp
  if(options.oath&&terms.length)for(const filtered of oathModes){
   const filters:Record<string,unknown>=filtered&&options.savedFilters?{...settings.oathFilters}:{};
   if(filtered&&(!filters.filter||typeof filters.filter==='object'&&!Object.keys(filters.filter as object).length)&&autoFilter)filters.filter=autoFilter;
-  tasks.push({provider:'oathnet',family:'breach',terms:[...new Set(terms.filter(t=>!['ip','ip_address','adresse_ip'].includes(t.key)).map(t=>t.value))],filtered,filters,options:filtered&&options.savedFilters?{...settings.oathOptions}: {}});
+  tasks.push({provider:'oathnet',family:'breach',terms:[...new Set(terms.filter(t=>!t.context&&!['ip','ip_address','adresse_ip'].includes(t.key)).map(t=>t.value))],filtered,filters,options:filtered&&options.savedFilters?{...settings.oathOptions}: {}});
  }
- if(options.brix)for(const term of terms)for(const filtered of modes){
+ if(options.brix)for(const term of terms)for(const filtered of term.context?[true]:modes){
   if(['ip','ip_address','adresse_ip'].includes(term.key)&&(!filtered||!unique('email')&&!unique('phone')&&!(seedName&&unique('date_of_birth'))))continue;
-  const filters:Record<string,unknown>=filtered?{...brixContext,...(options.savedFilters?settings.brixFilters:{})}:{};
+  const filters:Record<string,unknown>=term.context?{...term.context}:filtered?{...brixContext,...(options.savedFilters?settings.brixFilters:{})}:{};
   // A shared-contact lookup must also be able to return a different person.
   // Keep explicit saved filters, but remove automatic target-only constraints.
   if(filtered&&options.related&&['email','phone','address'].includes(term.key))for(const field of Object.keys(brixContext))if(!options.savedFilters||settings.brixFilters?.[field]==null)delete filters[field];
@@ -227,24 +235,28 @@ export function reviewedPeople(groups:DeepReviewGroup[]):SearchPerson[]{
   return person;
  }));
 }
+export function keepSameNameFacts(seed:SearchPerson,groups:DeepReviewGroup[]):DeepReviewGroup[]{
+ const wanted=deepTerms(seed).find(term=>term.key==='name')?.value;if(!wanted)return groups;
+ return groups.map(group=>deepTerms(group.person).some(term=>term.key==='name'&&personNameKey(term.value)===personNameKey(wanted))?{...group,rows:group.rows.map(row=>({...row,keep:!!row.value.trim()}))}:group);
+}
 export function discoveredContacts(seed:SearchPerson,hits:DeepHit[],searched:DeepTerm[]):DeepTerm[]{
  const rows=reviewDeepFacts(seed,hits,[]),person=reviewedPerson(seed,rows.map(r=>({...r,keep:!r.conflict}))),seen=new Set(searched.map(t=>t.id));
  return deepTerms(person).filter(t=>['email','phone'].includes(t.key)&&!seen.has(t.id));
 }
 
 // Recursive discovery expands connections, never the original person's identity.
-export function classifyDeepNetwork(seed:SearchPerson,items:PeopleItem[],recursive=false):DeepMatches{
+export function classifyDeepNetwork(seed:SearchPerson,items:PeopleItem[],recursive=false,extended=false):DeepMatches{
  const result=classifyDeepHits(seed,items);
  const hits=[...result.same,...result.related,...result.unmatched];
- const nodes=[{id:seed.id,title:seed.title,data:identity(factsFor(seed)),hit:null as DeepMatch|null},...hits.map(hit=>{
+ const nodes=[{id:seed.id,title:seed.title,data:identity(factsFor(seed)),facts:factsFor(seed),hit:null as DeepMatch|null},...hits.map(hit=>{
   const facts=personFacts(hit.item);
-  return {id:hit.item.id,title:facts.find(f=>f.key==='name')?.value||[facts.find(f=>f.key==='first_name')?.value,facts.find(f=>f.key==='last_name')?.value].filter(Boolean).join(' ')||hit.item.source+' record',data:identity(facts),hit};
+  return {id:hit.item.id,title:facts.find(f=>f.key==='name')?.value||[facts.find(f=>f.key==='first_name')?.value,facts.find(f=>f.key==='last_name')?.value].filter(Boolean).join(' ')||hit.item.source+' record',data:identity(facts),facts,hit};
  })];
  const phones=phoneKeys(nodes.flatMap(node=>node.data.phones));
- const tokens=(node:typeof nodes[number])=>[...node.data.emails].map(v=>'email:'+v).concat(node.data.phones.map(v=>'phone:'+phones.get(v)),[...node.data.addresses].map(v=>'address:'+v));
+ const tokens=(node:typeof nodes[number])=>[...node.data.emails].map(v=>'email:'+v).concat(node.data.phones.map(v=>'phone:'+phones.get(v)),[...node.data.addresses].map(v=>'address:'+v),extended?node.facts.filter(f=>!['email','phone','address'].includes(f.key)).map(f=>f.key+':'+f.normalized):[]);
  const index=new Map<string,Set<number>>();
  nodes.forEach((node,i)=>tokens(node).forEach(token=>{if(!index.has(token))index.set(token,new Set());index.get(token)!.add(i)}));
- const connected=new Set([0,...nodes.flatMap((node,i)=>node.hit&&node.hit.kind!=='unmatched'?[i]:[])]),queue=[...connected];
+ const connected=new Set([0,...nodes.flatMap((node,i)=>node.hit&&node.hit.kind!=='unmatched'?[i]:[])]),queue=extended?nodes.map((_,i)=>i):[...connected];
  for(let n=0;n<queue.length;n++){
   const a=nodes[queue[n]],candidates=new Set(tokens(a).flatMap(token=>[...(index.get(token)||[])]));
   for(const i of candidates){
@@ -253,8 +265,13 @@ export function classifyDeepNetwork(seed:SearchPerson,items:PeopleItem[],recursi
    const email=overlaps(a.data.emails,b.data.emails),phone=a.data.phones.some(value=>b.data.phones.some(other=>phones.get(value)===phones.get(other)));
    const locationConflict=(['cities','postals','countries'] as const).some(key=>a.data[key].size&&b.data[key].size&&!overlaps(a.data[key],b.data[key]));
    const address=!locationConflict&&overlaps(a.data.addresses,b.data.addresses);
-   if(!email&&!phone&&!(address&&surname))continue;
-   if(recursive&&!connected.has(i)){
+   const shared=extended?a.facts.filter(f=>!['email','phone','address'].includes(f.key)&&b.facts.some(other=>other.key===f.key&&other.normalized===f.normalized)):[];
+   if(!email&&!phone&&!(address&&surname)&&!shared.length)continue;
+   if(extended){
+    const links=[email?'Email shared with '+a.title:'',phone?'Phone shared with '+a.title:'',address?'Address shared with '+a.title:'',...shared.map(f=>f.label+' shared with '+a.title+' (correlation only)')].filter(Boolean);
+    b.hit.reasons=[...new Set([...b.hit.reasons.filter(reason=>!/No identity correlation|Not enough supporting/.test(reason)),...links])];
+   }
+   if(recursive&&connected.has(queue[n])&&!connected.has(i)&&(email||phone||address&&surname)){
     connected.add(i);queue.push(i);b.hit.kind='related';b.hit.reasons=[...b.hit.reasons.filter(reason=>!/No identity correlation|Not enough supporting/.test(reason)),...(email?['Email shared with '+a.title]:[]),...(phone?['Phone shared with '+a.title]:[]),...(address?['Address shared with '+a.title]:[])];
    }
    if(connected.has(i)&&surname&&!sameName&&a.data.names.size&&b.data.names.size){
@@ -266,13 +283,13 @@ export function classifyDeepNetwork(seed:SearchPerson,items:PeopleItem[],recursi
  }
  return {same:result.same,related:hits.filter(hit=>hit.kind==='related'),unmatched:hits.filter(hit=>hit.kind==='unmatched')};
 }
-export function nextDeepSearchTerms(matches:DeepMatches,searched:DeepTerm[]):DeepTerm[]{
- const found=[...matches.same,...matches.related].flatMap(hit=>{
+export function nextDeepSearchTerms(matches:DeepMatches,searched:DeepTerm[],extended=false):DeepTerm[]{
+ const found=[...matches.same,...matches.related,...(extended?matches.unmatched:[])].flatMap(hit=>{
   const facts=personFacts(hit.item),person:SearchPerson={id:hit.item.id,title:'',items:[hit.item],details:facts.map(f=>({...f,confidence:50,explanation:'',sources:[],recordIds:[],conflict:false})),confidence:0,matchReasons:[],warnings:[]};
-  return deepTerms(person).filter(term=>(hit.kind==='same'||['email','phone','address'].includes(term.key))&& (term.key!=='address'||term.value.length>=8));
+  return deepTerms(person,extended).filter(term=>(extended||hit.kind==='same'||['email','phone','address'].includes(term.key))&& (term.key!=='address'||term.value.length>=8));
  });
  const phones=phoneKeys([...searched,...found].filter(term=>term.key==='phone').map(term=>term.value));
- const key=(term:DeepTerm)=>term.key+':'+(term.key==='phone'?phones.get(term.value):text(term.value).replace(term.key==='address'?/[^\p{L}\p{N}]+/gu:/\s+/g,' '));
+ const key=(term:DeepTerm)=>term.key+':'+(term.key==='phone'?phones.get(term.value):text(term.value).replace(term.key==='address'?/[^\p{L}\p{N}]+/gu:/\s+/g,' '))+(term.context?JSON.stringify(term.context):'');
  const seen=new Set(searched.map(key));
  return found.filter(term=>{const id=key(term);if(seen.has(id))return false;seen.add(id);return true});
 }

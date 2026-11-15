@@ -41,21 +41,21 @@ function validateFilter(tree){
   visit(tree,0);
 }
 async function searchOath({query,settings,signal},key){
-  if(!['breach','stealer'].includes(settings?.oathFamily)){
-    const families=['breach','stealer'].filter(family=>!settings?.oathCursors||typeof settings.oathCursors[family]==='string');
+  if(!['breach','stealer','victims'].includes(settings?.oathFamily)){
+    const families=['breach','stealer','victims'].filter(family=>!settings?.oathCursors||typeof settings.oathCursors[family]==='string');
     if(!families.length)throw Error('No OathNet pages selected.');
     const outcomes=await Promise.allSettled(families.map(oathFamily=>searchOath({query,signal,settings:{...settings,oathFamily,cursor:settings?.oathCursors?.[oathFamily]}},key)));
     const successful=outcomes.filter(x=>x.status==='fulfilled').map(x=>x.value);
     if(!successful.length)throw outcomes[0].reason;
     const datasets=outcomes.map((outcome,i)=>({family:families[i],status:outcome.status==='fulfilled'?'complete':'error',count:outcome.status==='fulfilled'?outcome.value.items.length:0,nextCursor:outcome.status==='fulfilled'?outcome.value.meta.nextCursor:settings?.oathCursors?.[families[i]]||'',message:outcome.status==='rejected'?String(outcome.reason?.message||'Lookup failed.'):''}));
     const failures=datasets.filter(x=>x.status==='error');
-    return {items:successful.flatMap(x=>x.items),meta:{datasets},notice:failures.length?failures.map(x=>`OathNet ${x.family} unavailable: ${x.message}`).join(' · '):'Breach and stealer datasets searched'};
+    return {items:successful.flatMap(x=>x.items),meta:{datasets},notice:failures.length?failures.map(x=>`OathNet ${x.family} unavailable: ${x.message}`).join(' · '):'Breach, stealer and victim datasets searched'};
   }
 
   if(!key)throw new Error('Add an OathNet API key in Settings.');
   if(settings?.oathOptions?.filter_id&&!/^[a-f0-9]{24}$/i.test(settings?.oathOptions?.filter_id))throw Error('OathNet filter ID must be 24 hexadecimal characters.');
   if(!String(query||'').trim()&&!Object.values(settings?.oathFilters||{}).some(v=>Array.isArray(v)?v.length:typeof v==='object'&&v?Object.keys(v).length:!!String(v||'').trim()))throw Error('Enter a query or at least one OathNet filter.');
-  const family=settings?.oathFamily==='stealer'?'stealer':'breach';
+  const family=settings.oathFamily;
   const params=new URLSearchParams({...String(query||'').trim()?{q:cleanQuery(query)}:{},page_size:String(Math.min(100,Math.max(1,Number(settings?.pageSize)||20)))});
   for(const [k,v] of Object.entries(settings?.oathOptions||{}))if(['sort','from','to','date_field','logic','cursor','filter_id','view','wildcard','has_log_id'].includes(k)&&v!==''&&v!=null&&!(k==='wildcard'&&v===false)&&!(k==='has_log_id'&&family!=='stealer'))params.set(k,String(v));
   for(const [k,v] of Object.entries(settings?.oathFilters||{})){
@@ -70,8 +70,8 @@ async function searchOath({query,settings,signal},key){
   if(data.success===false)throw new Error(String(data.message||'OathNet rejected the search.'));
   const payload=data.data||data;
   if(!Array.isArray(payload.items))throw new Error('Unexpected OathNet response: data.items missing.');
-  const items=rows(payload.items,`OathNet · ${family}`);
-  for(const item of items)item.id=item.fields.id?`${item.source}-${encodeURIComponent(String(item.fields.id))}`:`${item.id}-${encodeURIComponent(params.get('cursor')||'first')}`;
+  const items=rows(payload.items,`OathNet · ${family==='victims'?'stealer victims':family}`);
+  for(const item of items){const id=family==='victims'?item.fields.log_id:item.fields.id;item.id=id?`${item.source}-${encodeURIComponent(String(id))}`:`${item.id}-${encodeURIComponent(params.get('cursor')||'first')}`;}
   return {items,meta:{total:payload.meta?.total??null,nextCursor:payload.next_cursor||null},notice:'OathNet V2 search'};
 }
 async function searchBrix({query,settings,terms:explicitTerms,signal}){

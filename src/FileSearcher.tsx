@@ -2,7 +2,7 @@ import {useEffect,useMemo,useState} from 'react';
 import {Search,ScanSearch,ShieldCheck,Download,Square,FolderOpen,Copy,ChevronLeft,ChevronRight,Check,FileSearch} from 'lucide-react';
 import './file-search.css';
 
-const fields=[['email','Email'],['phone','Phone'],['username','Username'],['name','Full name'],['firstName','First name'],['lastName','Last name'],['discord','Discord ID'],['url','URL'],['ipv4','IPv4'],['ipv6','IPv6'],['domain','Domain'],['dateOfBirth','Birth date'],['age','Age'],['address','Address'],['city','City'],['country','Country'],['postalCode','Postal code'],['organization','Organization'],['mac','MAC address']];
+const fields=[['email','Email'],['phone','Phone'],['username','Username'],['name','Full name'],['firstName','First name'],['lastName','Last name'],['discord','Discord ID'],['url','URL'],['ipv4','IPv4'],['ipv6','IPv6'],['domain','Domain'],['dateOfBirth','Birth date'],['age','Age'],['address','Address'],['city','City'],['country','Country'],['postalCode','Postal code'],['organization','Organization'],['mac','MAC address'],['token','Token'],['cookie','Cookie'],['password','Password']];
 const defaults=['email','phone','username','name','firstName','lastName','dateOfBirth','age','address','city','country','postalCode'];
 const labels=Object.fromEntries(fields);
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -46,6 +46,7 @@ export default function FileSearcher({onError,onSave}:{onError:(message:string)=
 <details className="file-detection-options"><summary>Detection settings <span>{kinds.length} fields · {minimum}% minimum score · {limit.toLocaleString()} match limit</span></summary>
      <div className="file-preset-row"><span>Detect</span><button disabled={busy} onClick={()=>setKinds(defaults)}>Person details</button><button disabled={busy} onClick={()=>setKinds(fields.map(([kind])=>kind))}>All fields</button><button disabled={busy} onClick={()=>setKinds([])}>Clear</button></div>
      <fieldset disabled={busy} className="file-field-grid"><legend className="sr-only">Fields to extract</legend>{fields.map(([kind,label])=><label key={kind}><input type="checkbox" checked={kinds.includes(kind)} onChange={event=>setKinds(value=>event.target.checked?[...value,kind]:value.filter(item=>item!==kind))}/>{label}</label>)}</fieldset>
+     {kinds.some(kind=>kind==='token'||kind==='cookie'||kind==='password')&&<p>Token, cookie and password values will be visible in results and included when you copy, save or export them. Name and username detection uses heuristics; unusual valid values may be skipped.</p>}
      <div className="file-detection-bottom"><label>Minimum score <b>{minimum}%</b><input aria-label="Minimum detection score" disabled={busy} type="range" min={0} max={100} step={5} value={minimum} onChange={event=>setMinimum(Number(event.target.value))}/></label><label>Match limit<select disabled={busy} value={limit} onChange={event=>setLimit(Number(event.target.value))}>{[300,1000,3000].map(value=><option key={value} value={value}>{value.toLocaleString()}</option>)}</select></label></div>
 
     </details>

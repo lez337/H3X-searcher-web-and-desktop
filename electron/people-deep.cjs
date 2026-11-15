@@ -17,6 +17,7 @@ function recordItem(fields,source){const cleaned=cleanRecord(fields);return {id:
 function validatePlan(plan){
  if(!plan||!Array.isArray(plan.tasks)||!plan.tasks.length||plan.tasks.length>84||JSON.stringify(plan).length>100000)throw Error('Choose between 1 and 84 deep-search tasks.');
  if(![1,3].includes(plan.pages)&&!(plan.longSearch===true&&plan.pages===0))throw Error('Choose 100 or 300 records per BrixHub search.');
+ if(plan.startPage!=null&&(!Number.isSafeInteger(plan.startPage)||plan.startPage<1||plan.tasks.length!==1||plan.tasks[0].provider!=='brixhub'))throw Error('Invalid BrixHub continuation page.');
  for(const task of plan.tasks){
   if(!task||!['oathnet','brixhub','ghunt'].includes(task.provider)||!task.filters||typeof task.filters!=='object'||Array.isArray(task.filters))throw Error('Invalid deep-search task.');
   if(task.provider==='oathnet'){
@@ -100,7 +101,7 @@ async function oathBulk(task,key,{signal,progress,fetcher=fetch,now=Date.now}={}
  return {items:rows.map(fields=>recordItem(fields,'OathNet · breach')),limited};
 }
 async function runDeepSearch(plan,{signal=new AbortController().signal,key='',progress=()=>{},oath=oathBulk,brix=searchBrix,ghunt=searchGhunt}={}){
- validatePlan(plan);let next=0,completed=0,limited=false;const items=new Map(),warnings=[];
+ validatePlan(plan);let next=0,completed=0,limited=false,nextPage;const items=new Map(),warnings=[];
  const pending=new Map(),requests=new Set();const maxRecords=plan.longSearch?Infinity:MAX_RECORDS;
  const collect=item=>{if(!items.has(item.id))pending.set(item.id,item);items.set(item.id,item)};
  const emit=message=>{const found=[...pending.values()];pending.clear();progress({completed,total:plan.tasks.length,records:items.size,message,...(found.length?{items:found}:{})})};
@@ -124,14 +125,14 @@ async function runDeepSearch(plan,{signal=new AbortController().signal,key='',pr
      const result=await oath(task,key,{signal,progress:emit});limited||=!!result.limited;
      for(const item of result.items){if(items.size>=maxRecords){limited=true;break}const cleaned=recordItem(item.fields,item.source);collect(cleaned)}
     }else{
-     let page=1;const pageResults=new Set();while((plan.longSearch||page<=plan.pages)&&!signal.aborted){
+     const start=plan.startPage||1;let page=start;const pageResults=new Set();while((plan.longSearch||page<start+plan.pages)&&!signal.aborted){
       const result=await brix({query:task.query,terms:{[task.field]:task.query},signal,settings:{brixFilters:task.filters,flexible:false,pageSize:100,page}});
       const fingerprint=JSON.stringify(stable(result.items.map(item=>item.fields)));if(pageResults.has(fingerprint)){if(plan.longSearch)warnings.push('BrixHub repeated a page; pagination stopped.');break}pageResults.add(fingerprint);
       for(const item of result.items){if(items.size>=maxRecords){limited=true;break}const cleaned=recordItem(item.fields,'BrixHub');collect(cleaned)}
       emit('BrixHub page '+page+' received');
       const hasMore=result.meta?.pages!=null?Number(result.meta.pages)>page:result.meta?.total!=null?Number(result.meta.total)>page*100:result.items.length===100;
       if(!hasMore)break;
-      if(!plan.longSearch&&page===plan.pages){limited=true;break}page++;
+      if(!plan.longSearch&&page===start+plan.pages-1){limited=true;if(plan.tasks.length===1)nextPage=page+1;break}page++;
      }
     }
    }catch(error){if(!signal.aborted)warnings.push(`${label} ${task.filtered?'filtered':'unfiltered'} task ${index+1}: ${error.message||'Search failed.'}`)}
@@ -139,7 +140,7 @@ async function runDeepSearch(plan,{signal=new AbortController().signal,key='',pr
    if(items.size>=maxRecords){limited=true;break}
   }
  }));
- return {items:[...items.values()],completed,total:plan.tasks.length,canceled:signal.aborted,warnings:[...new Set(warnings)],limited};
+ return {items:[...items.values()],completed,total:plan.tasks.length,canceled:signal.aborted,warnings:[...new Set(warnings)],limited,...(nextPage?{nextPage}:{})};
 }
 function registerDeepSearch({ipcMain,key,log=async()=>{}}){
  const runs=new Map();

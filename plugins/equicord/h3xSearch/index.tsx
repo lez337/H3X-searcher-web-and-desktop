@@ -1,5 +1,6 @@
 import './style.css';
 import {cardFields, cardTitle, type CardItem, type CardField} from './presentation';
+import type {SearchBy} from './native';
 import {definePluginSettings} from '@api/Settings';
 import {findGroupChildrenByChildId, type NavContextMenuPatchCallback} from '@api/ContextMenu';
 import {ModalRoot, ModalHeader, ModalContent, ModalCloseButton, openModal, type ModalProps} from '@utils/modal';
@@ -34,6 +35,7 @@ function ResultCard({item}: {item: CardItem}) {
 }
 function SearchModal({user, ...props}: ModalProps & {user: User}) {
     const [started, setStarted] = useState(false);
+    const [searchBy, setSearchBy] = useState<SearchBy>('both');
     const [includeConnections, setIncludeConnections] = useState(false);
     const [loadingConnections, setLoadingConnections] = useState(false);
     const [connectionsError, setConnectionsError] = useState('');
@@ -45,15 +47,15 @@ function SearchModal({user, ...props}: ModalProps & {user: User}) {
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
     useEffect(() => {
-        if (!includeConnections || started) return;
+        if (!includeConnections || searchBy === 'id' || started) return;
         let active = true; setLoadingConnections(true); setConnectionsError('');
         (async () => {
             try { await fetchUserProfile(user.id); }
-            catch { if (active) setConnectionsError('Could not load this user’s linked accounts. Uncheck the option to search only their Discord ID and username.'); }
+            catch { if (active) setConnectionsError('Could not load linked accounts. Uncheck the option to continue.'); }
             finally { if (active) setLoadingConnections(false); }
         })();
         return () => { active = false; };
-    }, [includeConnections, started, user.id]);
+    }, [includeConnections, searchBy, started, user.id]);
     useEffect(() => {
         if (!started) return;
         let active = true; setError(''); setResult(null);
@@ -61,28 +63,29 @@ function SearchModal({user, ...props}: ModalProps & {user: User}) {
             try {
                 if (!Native?.search) throw new Error('H3XSearch requires desktop Equicord with native plugin helpers.');
                 if (!settings.store.siteUrl) throw new Error('Set your H3X site URL in H3XSearch settings.');
-                const data = await Native.search(settings.store.siteUrl.trim(), settings.store.apiKey.trim(), user.id, user.username, queryNames);
+                const data = await Native.search(settings.store.siteUrl.trim(), settings.store.apiKey.trim(), user.id, user.username, queryNames, searchBy);
                 if (active) setResult(data);
             } catch (error) { if (active) setError(error instanceof Error ? error.message : 'H3X search failed.'); }
         })();
         return () => { active = false; };
-    }, [user.id, user.username, attempt, started, queryNames]);
-    return <ModalRoot {...props}>
-        <ModalHeader><h2 style={{flex: 1, color: 'var(--text-normal)'}}>Search user on H3X</h2><ModalCloseButton onClick={props.onClose}/></ModalHeader>
-        <ModalContent><div className="h3x-search">
+    }, [user.id, user.username, attempt, started, queryNames, searchBy]);
+    return <ModalRoot {...props} className="h3x-modal">
+        <ModalHeader className="h3x-header"><div><span className="h3x-eyebrow">H3X SEARCH</span><h2>Search on H3X</h2></div><ModalCloseButton onClick={props.onClose}/></ModalHeader>
+        <ModalContent className="h3x-content"><div className="h3x-search">
             <div className="h3x-identity"><span className="h3x-monogram" aria-hidden="true">{user.username.slice(0, 1).toUpperCase()}</span><div><strong>{user.username}</strong><div className="h3x-muted">Discord · {user.id}</div></div></div>
             {!started && <div>
-                <label style={{display: 'flex', gap: 10, alignItems: 'center', margin: '16px 0'}}><input type="checkbox" checked={includeConnections} onChange={event => setIncludeConnections(event.currentTarget.checked)}/>Also search usernames of linked accounts on this Discord profile</label>
-                {includeConnections && <div>
+                <fieldset className="h3x-search-mode"><legend>Search by</legend>{([['both', 'Username + Discord ID'], ['username', 'Username only'], ['id', 'Discord ID only']] as const).map(([value, label]) => <label key={value}><input type="radio" name="h3x-search-by" value={value} checked={searchBy === value} onChange={() => setSearchBy(value)}/><span>{label}</span></label>)}</fieldset>
+                {searchBy !== 'id' && <label className="h3x-connection-option"><input type="checkbox" checked={includeConnections} onChange={event => setIncludeConnections(event.currentTarget.checked)}/><span><strong>Include linked usernames</strong><span className="h3x-muted">Search visible accounts connected to this profile.</span></span></label>}
+                {searchBy !== 'id' && includeConnections && <div className="h3x-connections">
                     {loadingConnections ? <p role="status">Loading visible linked accounts…</p> : connectionsError ? <p role="alert">{connectionsError}</p> : <>
-                        {connections.length ? <ul>{connections.map((account, index) => <li key={index}>{account.type}: {account.name}</li>)}</ul> : <p>No visible linked accounts found. The search will use only the Discord ID and username.</p>}
+                        {connections.length ? <ul>{connections.map((account, index) => <li key={index}><span className="h3x-muted">{account.type}</span><strong>{account.name}</strong></li>)}</ul> : <p>No visible linked accounts found.</p>}
                         <p>{Math.min(names.length, 10)} additional unique names will be searched with BrixHub and OathNet.</p>
                         {names.length > 10 && <p>The first 10 unique linked names will be included.</p>}
                     </>}
                 </div>}
-                <button className="h3x-primary" disabled={includeConnections && (loadingConnections || !!connectionsError)} onClick={() => { setQueryNames(includeConnections ? names.slice(0, 10) : []); setStarted(true); }}>Search on H3X</button>
+                <button className="h3x-primary" disabled={searchBy !== 'id' && includeConnections && (loadingConnections || !!connectionsError)} onClick={() => { setQueryNames(searchBy !== 'id' && includeConnections ? names.slice(0, 10) : []); setStarted(true); }}>Search on H3X</button>
             </div>}
-            {started && !result && !error && <p role="status">Searching ID, username{queryNames.length ? ` and ${queryNames.length} linked account names` : ''}…</p>}
+            {started && !result && !error && <p role="status">Searching {searchBy === 'both' ? 'username and Discord ID' : searchBy === 'id' ? 'Discord ID' : 'username'}{queryNames.length ? ` and ${queryNames.length} linked account names` : ''}…</p>}
             {error && <div role="alert"><p>{error}</p><button onClick={() => setAttempt(attempt + 1)}>Retry</button></div>}
             {result && <><p className="h3x-muted">{result.notice}</p>
                 <div className="h3x-summary"><strong>{result.items.length} {result.items.length === 1 ? 'record' : 'records'}</strong><button onClick={() => setStarted(false)}>Change search</button></div>
@@ -98,7 +101,7 @@ function SearchModal({user, ...props}: ModalProps & {user: User}) {
 }
 const userMenu: NavContextMenuPatchCallback = (children, {user}: {user?: User}) => {
     if (!user) return;
-    const item = <Menu.MenuItem key="h3x-search-user" id="h3x-search-user" label="Search user on H3X" action={() => openModal(props => <SearchModal {...props} user={{id: user.id, username: user.username}}/>)}/>;
+    const item = <Menu.MenuItem key="h3x-search-user" id="h3x-search-user" label="Search on H3X" action={() => openModal(props => <SearchModal {...props} user={{id: user.id, username: user.username}}/>)}/>;
     const group = findGroupChildrenByChildId('devmode-copy-id', children);
     const copyIdIndex = group?.findIndex(child => React.isValidElement<{id?: string}>(child) && child.props.id === 'devmode-copy-id') ?? -1;
     if (group && copyIdIndex !== -1) group.splice(copyIdIndex + 1, 0, item);

@@ -1,6 +1,6 @@
 {
   "name": "h3x-searcher",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "main": "desktop/main.cjs",
   "repository": {
     "type": "git",

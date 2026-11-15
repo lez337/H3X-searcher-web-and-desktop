@@ -84,3 +84,59 @@ test('expanded scanner adds validated dates, labeled fields and confidence with 
  assert.equal(hits.length,7);assert.ok(hits.every(h=>h.confidence>=75&&h.confidence<=100&&h.reason));
  assert.ok(scanText('jane@example.org\nexample.org','example.txt','',300,['email','domain'],90).every(h=>h.kind==='email'));
 });
+
+test('credential extraction is opt-in, case-sensitive, and never falls through to person detection',()=>{
+ const text=JSON.stringify({access_token:'AbCd.synthetic',refreshToken:'abcd.synthetic',password:'never-extract',cookies:[{domain:'example.org',name:'Fake Person',value:'hidden@example.org'}],profile:{name:'Jane Doe',username:'valid_user'}});
+ assert.deepEqual(scanDetailed(text,'data.json').hits.map(hit=>hit.value),['Jane Doe','valid_user']);
+ const hits=scanDetailed(text,'data.json',{kinds:['token','cookie','email','name','username']}).hits;
+ assert.deepEqual(hits.map(hit=>[hit.kind,hit.value]),[['token','AbCd.synthetic'],['token','abcd.synthetic'],['cookie','hidden@example.org'],['name','Jane Doe'],['username','valid_user']]);
+ assert.equal(hits[2].path,'$["cookies"][0]["value"]');
+ assert.deepEqual(scanDetailed(text,'data.json',{kinds:['cookie'],query:'HIDDEN',minConfidence:90}).hits.map(hit=>hit.kind),['cookie']);
+ assert.equal(scanDetailed(text,'data.json',{kinds:['token'],minConfidence:95}).hits.length,0);
+ assert.deepEqual(scanDetailed('{"tokens":{"password":"never-extract","access_token":"syntheticToken"}}','data.json',{kinds:['token']}).hits.map(hit=>hit.value),['syntheticToken']);
+});
+
+test('tokens and cookies support labeled text, CSV, Netscape exports and credential filenames',()=>{
+ const options={kinds:['token','cookie','name','email']};
+ assert.deepEqual(scanDetailed('name: Jane Doe, token: syntheticToken\nCookie: sid=syntheticValue','data.txt',options).hits.map(hit=>[hit.kind,hit.value]),[['name','Jane Doe'],['token','syntheticToken'],['cookie','sid=syntheticValue']]);
+ const csv=scanDetailed('domain,name,value\nexample.org,Fake Person,syntheticCookie','data.csv',options);
+ assert.deepEqual(csv.hits.map(hit=>[hit.kind,hit.value]),[['cookie','syntheticCookie']]);
+ const netscape='#HttpOnly_example.org\tTRUE\t/\tTRUE\t2000000000\tsid\tsyntheticCookie';
+ const cookie=scanDetailed(netscape,'archive.zip/Browser/Cookies.txt',options).hits[0];
+ assert.equal(cookie.kind,'cookie');assert.equal(cookie.value,'syntheticCookie');assert.equal(cookie.column,netscape.lastIndexOf('\t')+2);
+ assert.deepEqual(scanDetailed('syntheticToken','archive.zip/Tokens.txt',options).hits.map(hit=>hit.kind),['token']);
+ assert.deepEqual(scanDetailed('JWT: syntheticJwt\nSet-Cookie: sid=syntheticValue','data.txt',options).hits.map(hit=>[hit.kind,hit.value]),[['token','syntheticJwt'],['cookie','sid=syntheticValue']]);
+ assert.equal(scanDetailed('email: hidden@example.org','archive.zip/Passwords.txt',options).hits.length,0);
+ assert.equal(scanDetailed(netscape,'Cookies.txt',{kinds:['token']}).hits.length,0);
+ assert.equal(scanDetailed(netscape,'Cookies.txt').hits.length,0);
+});
+
+test('names and handles reject obvious gibberish without requiring an English name dictionary',()=>{
+ const text='name: Xqztrpkl Bcdfghjk\nfirst_name: aaaaaaaa\nusername: qwrtypzlk\nnickname: abcabcabc\nname: Élodie Martin\nname: 李 小龙\nlast_name: Ng\nusername: @valid_user42\nnickname: 東京太郎';
+ const hits=scanDetailed(text,'people.txt',{kinds:['name','firstName','lastName','username']}).hits;
+ assert.deepEqual(hits.map(hit=>hit.value),['Élodie Martin','李 小龙','Ng','valid_user42','東京太郎']);
+});
+
+test('password detection is opt-in and preserves case, whitespace and punctuation',()=>{
+ const text=JSON.stringify({password:' AbC!;} ',passwd:'abc!;}',pwd:'hidden@example.org',profile:{name:'Jane Doe'},tokens:{password:'nestedPassword',access_token:'syntheticToken'}});
+ assert.deepEqual(scanDetailed(text,'data.json').hits.map(hit=>hit.value),['Jane Doe']);
+ const hits=scanDetailed(text,'data.json',{kinds:['password','email','name','token']}).hits;
+ assert.deepEqual(hits.map(hit=>[hit.kind,hit.value]),[['password',' AbC!;} '],['password','abc!;}'],['password','hidden@example.org'],['name','Jane Doe'],['password','nestedPassword'],['token','syntheticToken']]);
+ assert.equal(hits[0].path,'$["password"]');
+ assert.deepEqual(scanDetailed(text,'data.json',{kinds:['password'],query:'NESTED',minConfidence:90}).hits.map(hit=>hit.value),['nestedPassword']);
+ assert.equal(scanDetailed(text,'data.json',{kinds:['password'],minConfidence:95}).hits.length,0);
+ const repeated=scanDetailed('{"passwords":["Example","example","Example"]}','data.json',{kinds:['password']}).hits;
+ assert.deepEqual(repeated.map(hit=>[hit.value,hit.occurrences]),[['Example',2],['example',1]]);
+});
+
+test('passwords support labeled text, CSV and password files without converting labeled usernames',()=>{
+ const options={kinds:['password','email','username']};
+ const text='username: valid_user, password: " AbC!;} "\npasswd: abc!;}\npwd: hidden@example.org';
+ assert.deepEqual(scanDetailed(text,'data.txt',options).hits.map(hit=>[hit.kind,hit.value]),[['username','valid_user'],['password',' AbC!;} '],['password','abc!;}'],['password','hidden@example.org']]);
+ const csv='username,password\nvalid_user," AbC!;} "';
+ assert.deepEqual(scanDetailed(csv,'data.csv',options).hits.map(hit=>hit.value),['valid_user',' AbC!;} ']);
+ const file='username: valid_user\npassword: syntheticPassword';
+ assert.equal(scanDetailed(file,'archive.zip/Passwords.txt').hits.length,0);
+ assert.deepEqual(scanDetailed(file,'archive.zip/Passwords.txt',options).hits.map(hit=>[hit.kind,hit.value]),[['password','syntheticPassword']]);
+ assert.deepEqual(scanDetailed('syntheticPassword','Passwords.txt',options).hits.map(hit=>hit.value),['syntheticPassword']);
+});

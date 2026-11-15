@@ -43,6 +43,19 @@ test('binary files and malformed archives produce visible notices without aborti
  assert.equal(result.filesScanned,1);assert.equal(result.filesSkipped,2);assert.equal(result.hits[0].value,'good@example.org');
 });
 
+test('ZIP scans opt into tokens and cookies while suppressing random person details',async t=>{
+ const write=await fixture(t),zip=new JSZip();
+ zip.file('Tokens.txt','syntheticToken');
+ zip.file('Browser/Cookies.json',JSON.stringify([{domain:'example.org',name:'Fake Person',value:'syntheticCookie'}]));
+ zip.file('Passwords.txt','password: syntheticPassword');
+ zip.file('people.csv','name,username\nJane Doe,valid_user\nXqztrpkl Bcdfghjk,qwrtypzlk');
+ const file=await write('details.zip',await zip.generateAsync({type:'nodebuffer'}));
+ assert.deepEqual((await scanFiles([file],{kinds:['name','username']})).hits.map(hit=>hit.value),['Jane Doe','valid_user']);
+ const result=await scanFiles([file],{kinds:['token','cookie','password','name','username']});
+ assert.deepEqual(result.hits.map(hit=>hit.value),['syntheticToken','syntheticCookie','syntheticPassword','Jane Doe','valid_user']);
+ assert.ok(result.hits.every(hit=>hit.file.startsWith('details.zip / ')));
+});
+
 function ipcFixture(files){
  const handlers=new Map(),sender=new EventEmitter();sender.id=1;sender.isDestroyed=()=>false;sender.send=()=>{};
  registerFileScanner({ipcMain:{handle:(name,handler)=>handlers.set(name,handler)},dialog:{showOpenDialog:async()=>({filePaths:files,canceled:false})},getWindow:()=>null,log:async()=>{}});
@@ -51,6 +64,13 @@ function ipcFixture(files){
 test('IPC runs the real worker, forwards progress and cleans up listeners after completion',async t=>{
  const write=await fixture(t),ipc=ipcFixture([await write('worker.txt','worker@example.org')]);let progress=false;ipc.sender.send=(channel)=>{if(channel==='file:progress')progress=true};
  const result=await ipc.run({kinds:['email']});assert.equal(result.count,1);assert.equal(progress,true);assert.equal(ipc.sender.listenerCount('destroyed'),0);assert.equal(ipc.cancel(),false);
+});
+
+test('IPC default fields exclude credentials until explicitly selected',async t=>{
+ const write=await fixture(t),ipc=ipcFixture([await write('worker.txt','worker@example.org\ntoken: syntheticToken\npassword: syntheticPassword')]);
+ assert.deepEqual((await ipc.run()).hits.map(hit=>hit.kind),['email']);
+ assert.deepEqual((await ipc.run({kinds:['token']})).hits.map(hit=>hit.value),['syntheticToken']);
+ assert.deepEqual((await ipc.run({kinds:['password']})).hits.map(hit=>hit.value),['syntheticPassword']);
 });
 
 test('canceling terminates the worker, rejects simultaneous scans and allows a new scan',async t=>{

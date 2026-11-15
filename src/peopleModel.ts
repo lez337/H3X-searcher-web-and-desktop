@@ -1,4 +1,5 @@
 import {frenchPhone,isFrenchPhoneContext,phoneDigits,phoneKeys,preferredPhones} from './phoneIdentity.ts';
+import {contactValues} from '../electron/contact-values.cjs';
 export type PeopleItem = {id:string;source:string;profileType?:string;fields?:Record<string,unknown>};
 export type PersonDetail = {key:string;label:string;value:string;confidence:number;explanation:string;sources:string[];recordIds:string[];conflict:boolean};
 export type SearchPerson = {id:string;title:string;items:PeopleItem[];details:PersonDetail[];confidence:number;matchReasons:string[];warnings:string[];reviewContext?:string};
@@ -70,6 +71,9 @@ function extract(item:PeopleItem):RecordInfo {
    }
    return;
   }
+  const contacts=contactValues(value,key);
+  contacts.emails.forEach(v=>add('email','Email',v));
+  contacts.phones.forEach(v=>add('phone','Phone',v));
   if(typeof value==='string'&&['email','phone','username'].includes(key))value.split(/[,;\n]+/).forEach(v=>add(key,label,v));
   else add(key,label,value);
  }
@@ -115,7 +119,8 @@ export function groupPeople(items:PeopleItem[]):SearchPerson[] {
  }
  const parent=records.map((_,i)=>i),warnings=records.map(()=>new Set<string>());
  const root=(i:number):number=>parent[i]===i?i:(parent[i]=root(parent[i]));
- const join=(a:number,b:number)=>{a=root(a);b=root(b);if(a!==b)parent[Math.max(a,b)]=Math.min(a,b)};
+ const componentNames=records.map(r=>new Set(r.names));
+ const join=(a:number,b:number)=>{a=root(a);b=root(b);if(a===b)return;const x=componentNames[a],y=componentNames[b];if(x.size&&y.size&&!intersects(x,y)){warnings[a].add('Different full names; kept separate.');warnings[b].add('Different full names; kept separate.');return}const target=Math.min(a,b);parent[Math.max(a,b)]=target;componentNames[target]=new Set([...x,...y])};
  const edges:[number,number][]=[],index=new Map<string,number[]>();
  records.forEach((r,i)=>{
   const tokens=[...r.emails].map(v=>'e:'+v).concat([...r.phones].map(v=>'p:'+v));

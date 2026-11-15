@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {ChevronRight,Folder,FileText,ShieldCheck,Download} from 'lucide-react';
+import {ChevronRight,Folder,FileText,ShieldCheck,Download,FileSearch} from 'lucide-react';
 import JSZip from 'jszip';
 
 type Node={id:string;name:string;type:string;children?:Node[]};
@@ -11,7 +11,7 @@ function TreeNode({node:n,expanded,onExpand}:{node:Node;expanded:Set<string>;onE
  </li>
 }
 function countNodes(n:Node):number{return 1+(n.children||[]).reduce((sum,child)=>sum+countNodes(child),0)}
-export default function StealerTree({logId}:{logId?:string}){
+export default function StealerTree({logId,onFileSearch}:{logId?:string;onFileSearch:()=>void}){
  const [tree,setTree]=useState<Node|null>(null),[expanded,setExpanded]=useState<Set<string>>(new Set(['1'])),[error,setError]=useState(''),[busy,setBusy]=useState(false),[downloading,setDownloading]=useState(false),[downloadError,setDownloadError]=useState('');
  async function load(){
   if(!logId||busy)return;
@@ -44,6 +44,7 @@ const path=parent+(n.type==='directory'?'folder-':'file-')+n.id;
   return <details className="stealer-browser" onToggle={e=>{if(e.currentTarget.open&&!tree&&!busy&&!error)void load()}}>
    <summary><Folder size={15}/> File tree <ShieldCheck size={14}/><small>Redacted</small></summary>
    <p className="muted">Folder hierarchy with redacted names. File contents are not included.</p>
+   <button onClick={onFileSearch}><FileSearch size={14}/>File search</button>
    {!logId&&<p className="muted">No file tree is available: this result has no log reference.</p>}
    {busy&&<p className="muted" role="status">Loading file structure...</p>}
    {error&&<div role="alert" className="muted">{error}<button disabled={busy} onClick={()=>void load()}>Retry</button></div>}

@@ -21,25 +21,31 @@ export function providerFailure(error){
 export function discordIdentity(body){
   if(typeof body?.userId!=='string'||!/^\d{14,20}$/.test(body.userId))throw Error('A Discord user ID must be a string of 14-20 digits.');
   if(typeof body.username!=='string'||!/^\S{2,32}$/.test(body.username)||/[\x00-\x1f\x7f]/.test(body.username))throw Error('Enter a Discord username of 2-32 characters.');
+  if(body.searchBy!==undefined&&!['both','username','id'].includes(body.searchBy))throw Error('Choose both, username, or id.');
+  if(body.searchBy==='id'&&body.connectedUsernames?.length)throw Error('Discord ID-only searches cannot include linked usernames.');
+  const mode=body.searchBy===undefined?{}:{searchBy:body.searchBy};
   if(body.connectedUsernames!==undefined){
     if(!Array.isArray(body.connectedUsernames)||body.connectedUsernames.length>10||body.connectedUsernames.some(name=>typeof name!=='string'||!name.trim()||name.length>100||/[\x00-\x1f\x7f]/.test(name)))throw Error('Choose up to 10 connected account names, each up to 100 characters.');
     const connectedUsernames=[...new Map(body.connectedUsernames.map(name=>[name.trim().toLowerCase(),name.trim()])).values()].filter(name=>name.toLowerCase()!==body.username.toLowerCase());
-    return {userId:body.userId,username:body.username,connectedUsernames};
+    return {userId:body.userId,username:body.username,connectedUsernames,...mode};
   }
-  return {userId:body.userId,username:body.username};
+  return {userId:body.userId,username:body.username,...mode};
 }
 export async function lookupDiscord(identity,env,signal,lookup=async task=>{
   if(task.kind==='profile')return profiles.searchProfile({profileKind:'discord',parameter:'discord_id',query:identity.userId,signal},env.OATHNET_API_KEY);
   if(task.provider==='oathnet')return providers.searchOath({query:task.query,settings:{oathFamily:task.family,pageSize:20},signal},env.OATHNET_API_KEY);
   return providers.searchBrix({query:task.query,terms:{[task.field]:task.query},settings:{pageSize:20,redaction:true},signal});
 }){
-  const tasks=[{kind:'id',query:identity.userId,field:'discord_id'},{kind:'username',query:identity.username,field:'nom_utilisateur'}];
+  const identifiers=[];
+  if(identity.searchBy!=='username')identifiers.push({kind:'id',query:identity.userId,field:'discord_id'});
+  if(identity.searchBy!=='id')identifiers.push({kind:'username',query:identity.username,field:'nom_utilisateur'});
+  const tasks=[...identifiers];
   const connected=identity.connectedUsernames||[];
   for(const name of connected)tasks.push({kind:'connected',query:name,field:'nom_utilisateur'});
   if(env.OATHNET_API_KEY){
-    for(const family of ['breach','stealer'])for(const [kind,value] of [['id',identity.userId],['username',identity.username]])tasks.push({provider:'oathnet',kind,query:value,family});
-    for(const family of ['breach','stealer'])for(const name of connected)tasks.push({provider:'oathnet',kind:'connected',query:name,family});
-    tasks.push({kind:'profile'});
+    for(const family of ['breach','stealer','victims'])for(const {kind,query} of identifiers)tasks.push({provider:'oathnet',kind,query,family});
+    for(const family of ['breach','stealer','victims'])for(const name of connected)tasks.push({provider:'oathnet',kind:'connected',query:name,family});
+    if(identity.searchBy!=='username')tasks.push({kind:'profile'});
   }
   // Bound outgoing concurrency when optional connected account names are included.
   const outcomes=new Array(tasks.length);let next=0;
@@ -57,7 +63,7 @@ export async function lookupDiscord(identity,env,signal,lookup=async task=>{
     }
   });
   if(!env.OATHNET_API_KEY)providerStatus.push({source:'OathNet',status:'skipped',count:0,message:'Save an OathNet key in your H3X account settings to enable OathNet searches.'});
-  const notices=['Username matches can refer to different people.'];
+  const notices=identity.searchBy==='id'?[]:['Username matches can refer to different people.'];
   if(providerStatus.some(p=>p.status==='error'))notices.push('Some providers failed. Results may be incomplete.');
   if(!env.OATHNET_API_KEY)notices.push('OathNet was not searched: save a key in your H3X account settings.');
   return {...identity,items,providerStatus,notice:notices.join(' '),quota:'No H3X call quota. Hosting and upstream limits apply.'};

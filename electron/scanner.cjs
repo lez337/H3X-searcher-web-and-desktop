@@ -1,10 +1,10 @@
 'use strict';
 const {isIP}=require('node:net');
-const kindsList=['email','phone','username','name','firstName','lastName','discord','url','ipv4','ipv6','domain','dateOfBirth','age','address','city','country','postalCode','organization','mac'];
+const kindsList=['email','phone','username','name','firstName','lastName','discord','url','ipv4','ipv6','domain','dateOfBirth','age','address','city','country','postalCode','organization','mac','token','cookie','password'];
 const keyName=value=>String(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/([a-z])([A-Z])/g,'$1_$2').toLowerCase().replace(/[\s.-]+/g,'_');
 const aliases={
  email:['email','email_address','mail','e_mail'],phone:['phone','phone_number','telephone','mobile','tel','cell_phone','numero_telephone','telefono'],
- username:['username','user_name','nom_utilisateur','login','screen_name','handle'],name:['name','full_name','fullname','display_name','nom_complet'],
+ username:['username','user_name','nom_utilisateur','login','screen_name','handle','nickname','nick'],name:['name','full_name','fullname','display_name','nom_complet'],
  firstName:['first_name','firstname','given_name','prenom'],lastName:['last_name','lastname','surname','family_name','nom','nom_famille'],
  discord:['discord','discord_id'],dateOfBirth:['date_of_birth','date_birth','birth_date','birthdate','dob','date_naissance'],age:['age','eta','years_old'],
  address:['address','address_street','street_address','home_address','adresse','indirizzo'],city:['city','ville','town'],country:['country','country_code','pays'],
@@ -13,11 +13,17 @@ const aliases={
 const labels=new Map(Object.entries(aliases).flatMap(([kind,names])=>names.map(name=>[keyName(name),kind])));
 const fieldKind=key=>labels.get(keyName(key).replace(/_?\d+$/,''));
 const textLabelPattern=[...new Set([...labels.keys()].flatMap(key=>[key,key.replace(/_/g,'')]))].sort((a,b)=>b.length-a.length).map(key=>key.split('_').join('[ _.-]?')).join('|');
-const textFieldRegex=new RegExp('(?:^|[\\s,;{])"?('+textLabelPattern+'|[a-z_]*(?:password|token|cookie|secret|session|authorization)[a-z_]*)\\d*"?\\s*[:=]\\s*','giu');
-const sensitive=key=>/(?:^|_)(?:cookies?|sessions?|tokens?|passwords?|passwd|authorization|auth|bearer|jwt|csrf|xsrf|secrets?|credentials?|local_?storage|api_?key|private_?key|access_?key|refresh_?key)(?:_|$)/i.test(keyName(key));
+const textFieldRegex=new RegExp('(?:^|[\\s,;{])"?('+textLabelPattern+'|[a-z_-]*(?:password|passwd|pwd|token|cookie|secret|session|authorization|bearer|jwt|csrf|xsrf)[a-z_-]*)\\d*"?\\s*[:=]\\s*','giu');
+const sensitive=key=>/(?:^|_)(?:cookies?|sessions?|tokens?|passwords?|passwd|pwd|authorization|auth|bearer|jwt|csrf|xsrf|secrets?|credentials?|local_?storage|api_?key|private_?key|access_?key|refresh_?key)(?:_|$)/i.test(keyName(key));
+const credentialKind=key=>/(?:^|_)(?:passwords?|passwd|pwd)(?:_|$)/.test(keyName(key))?'password':/(?:^|_)cookies?(?:_|$)/.test(keyName(key))?'cookie':/(?:^|_)(?:tokens?|authorization|bearer|jwt|csrf|xsrf)(?:_|$)/.test(keyName(key))?'token':null;
 const ignoredKey=key=>/(?:^|_)(?:id|uuid|guid|timestamp|created|updated|expires?|expiry|expiration|hash|checksum|nonce)(?:_|$)/.test(keyName(key));
 const placeholder=value=>/^(?:null|none|undefined|unknown|n\/?a|not (?:available|provided|set)|redacted|\[redacted\]|\*+|-+)$/i.test(value);
 function randomToken(value){return /^(?:[a-f\d]{16,}|[a-z\d]{8}(?:-[a-z\d]{4}){3}-[a-z\d]{12}|eyJ[\w-]+\.)$/i.test(value)||(value.length>=24&&new Set(value.toLowerCase()).size>=13)||(value.length>=14&&/[a-z]/.test(value)&&/[A-Z]/.test(value)&&(value.match(/\d/g)||[]).length>=3)}
+function gibberish(value){
+ const words=value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^\p{L}]+/u);
+ // shortcut: conservative Latin spelling checks, revisit with labeled false-positive samples.
+ return words.some(word=>/^[a-z]{5,}$/i.test(word)&&(/(.)\1{4}/i.test(word)||/^(.{1,3})\1{2,}$/i.test(word)||word.length>=8&&(!/[aeiou]/i.test(word)||/[bcdfghjklmnpqrstvwxz]{6}/i.test(word)||/qwerty|asdfgh|zxcvbn/i.test(word))||word.length>=10&&(word.match(/(?=[a-z][A-Z]|[A-Z][a-z])/g)||[]).length>=6));
+}
 function naturalName(value,single=false){
  if(value.length>100||!new RegExp(single?"^[\\p{L}][\\p{L}\\p{M}'’ -]{0,59}$":"^[\\p{L}][\\p{L}\\p{M}'’-]*(?:[ \\t]+[\\p{L}][\\p{L}\\p{M}'’-]*){1,7}$",'u').test(value))return false;
  return !value.split(/\s+/).some(word=>word.length>30||randomToken(word)||(/[a-z]/.test(word)&&(word.match(/[A-Z]/g)||[]).length>2));
@@ -35,14 +41,17 @@ function* jsonSegments(text,base=0){
   if(depth>64)throw Error('JSON nesting exceeds 64 levels');ws();const c=text[pos];
   if(c==='{'){
    // Recognize a browser cookie record even when the enclosing file has a neutral name.
-   const look=text.slice(pos,pos+4096);blocked||=/^\{[^{}]*"(?:domain|host)"\s*:/.test(look)&&/^\{[^{}]*"(?:httpOnly|http_only|expirationDate|sameSite)"\s*:/.test(look);
+   const look=text.slice(pos,pos+4096);if(!blocked&&/^\{[^{}]*"(?:domain|host|host_key)"\s*:/.test(look)&&(/^\{[^{}]*"value"\s*:/.test(look)&&/^\{[^{}]*"name"\s*:/.test(look)||/^\{[^{}]*"(?:httpOnly|http_only|expirationDate|sameSite)"\s*:/.test(look)))blocked='cookie';
    pos++;ws();if(text[pos]==='}'){pos++;return}
-   while(pos<text.length){if(text[pos]!=='"')throw Error('Expected a JSON key');const key=string().value;ws();if(text[pos++]!==':')throw Error('Expected a JSON colon');yield* value([...path,key],blocked||sensitive(key)||ignoredKey(key)&&!fieldKind(key),depth+1);ws();const next=text[pos++];if(next==='}')return;if(next!==',')throw Error('Expected a JSON comma');ws()}throw Error('Unterminated JSON object');
+   while(pos<text.length){if(text[pos]!=='"')throw Error('Expected a JSON key');const key=string().value;ws();if(text[pos++]!==':')throw Error('Expected a JSON colon');
+    const kind=credentialKind(key),excluded=sensitive(key)&&!kind||ignoredKey(key)&&!fieldKind(key);
+    yield* value([...path,key],blocked==='cookie'?(key==='value'?'cookie':true):blocked===true||excluded?true:kind||blocked,depth+1);
+    ws();const next=text[pos++];if(next==='}')return;if(next!==',')throw Error('Expected a JSON comma');ws()}throw Error('Unterminated JSON object');
   }
   if(c==='['){pos++;ws();if(text[pos]===']'){pos++;return}let index=0;while(pos<text.length){yield* value([...path,index++],blocked,depth+1);ws();const next=text[pos++];if(next===']')return;if(next!==',')throw Error('Expected a JSON comma')}throw Error('Unterminated JSON array')}
   let token;if(c==='"')token=string();else{const start=pos;while(pos<text.length&&!/[\s,}\]]/.test(text[pos]))pos++;if(pos===start)throw Error('Invalid JSON value');const raw=text.slice(start,pos),parsed=JSON.parse(raw);token={value:parsed==null?'':String(parsed),offset:base+start,raw}}
   const key=[...path].reverse().find(part=>typeof part==='string')||'';
-  if(!blocked&&(!ignoredKey(key)||fieldKind(key))&&token.value!=='')yield {...token,key,path:'$'+path.map(part=>typeof part==='number'?`[${part}]`:`[${JSON.stringify(part)}]`).join('')};
+  if(blocked!==true&&(!ignoredKey(key)||fieldKind(key)||blocked)&&token.value!=='')yield {...token,key,kind:blocked||undefined,path:'$'+path.map(part=>typeof part==='number'?`[${part}]`:`[${JSON.stringify(part)}]`).join('')};
  }
  yield* value([]);ws();if(pos!==text.length)throw Error('Trailing content after JSON');
 }
@@ -65,19 +74,22 @@ function* textSegments(text){
  let blockedBlock=false;
  for(const line of lines(text)){
   const source=line.text.trim();if(!source){blockedBlock=false;continue}
-  if(/^(?:\[|<)(?:cookies?|sessions?|tokens?|credentials?|local.?storage)/i.test(source)){blockedBlock=true;continue}
+  if(/^(?:\[|<)(?:cookies?|sessions?|tokens?|passwords?|passwd|pwd|credentials?|local.?storage)/i.test(source)){blockedBlock=credentialKind(source.replace(/^[\[<]|[\]>]$/g,''))||true;continue}
   if(/^\[[^\]]+\]$/.test(source))blockedBlock=false;
   const prefix=source.split(/[:=]/,1)[0];
-  if(blockedBlock||sensitive(prefix)||ignoredKey(prefix)&&!fieldKind(prefix)||/^(?:#HttpOnly_|[^\t]+\t(?:TRUE|FALSE)\t[^\t]*\t(?:TRUE|FALSE)\t\d+\t)/i.test(source))continue;
+  const cookie=line.text.match(/^(?:#HttpOnly_)?[^\t]+\t(?:TRUE|FALSE)\t[^\t]*\t(?:TRUE|FALSE)\t\d+\t[^\t]+\t([^\r\n]+)$/i);
+  if(cookie){yield {value:cookie[1],offset:line.offset+line.text.lastIndexOf('\t')+1,key:'value',kind:'cookie',path:'cookie.value'};continue}
+  if(blockedBlock){if(blockedBlock!==true)yield {value:source,offset:line.offset+line.text.indexOf(source),key:'',kind:blockedBlock,path:''};continue}
+  if(sensitive(prefix)&&!credentialKind(prefix)||ignoredKey(prefix)&&!fieldKind(prefix))continue;
   if(/[{}]/.test(source)&&/"(?:cookies?|sessions?|tokens?|passwords?|authorization)"\s*:/i.test(source))continue;
   const fields=[...line.text.matchAll(textFieldRegex)];
   if(!fields.length){yield {value:line.text,offset:line.offset,key:'',path:''};continue}
   for(let i=0;i<fields.length;i++){
-   const m=fields[i],key=m[1].trim();if(sensitive(key)||ignoredKey(key)&&!fieldKind(key))continue;
+   const m=fields[i],key=m[1].trim(),kind=credentialKind(key);if(sensitive(key)&&!kind||ignoredKey(key)&&!fieldKind(key))continue;
    const start=m.index+m[0].length,end=i+1<fields.length?fields[i+1].index:line.text.length;
    let value=line.text.slice(start,end).trimEnd(),offset=line.offset+start;
    if(value.startsWith('"')||value.startsWith("'")){const quote=value[0];value=value.slice(1);offset++;const endQuote=value.lastIndexOf(quote);if(endQuote>=0)value=value.slice(0,endQuote)}
-   value=value.replace(/[,;}]+\s*$/,'').trimEnd();yield {value,offset,key,path:key};
+   if(kind!=='password')value=value.replace(/[,;}]+\s*$/,'').trimEnd();yield {value,offset,key,kind,path:key};
   }
  }
 }
@@ -91,10 +103,10 @@ function* segments(text,filename,warnings){
  }
  if(['csv','tsv'].includes(ext)){
   try{const {delimiter,cells}=csvDelimiter(text);if(cells.length<2){warnings.push('No delimited header found; scanned as labeled text.');yield* textSegments(text);return}
-   let header;for(const row of csvRows(text,ext==='tsv'?'\t':delimiter)){
-    if(!header){header=row.map(cell=>cell.value.trim());const keys=header.map(keyName);if(keys.includes('name')&&keys.includes('value')&&keys.some(key=>['domain','host','host_key'].includes(key))){warnings.push('Browser cookie table excluded.');return}continue}
+   let header,cookieTable=false;for(const row of csvRows(text,ext==='tsv'?'\t':delimiter)){
+    if(!header){header=row.map(cell=>cell.value.trim());const keys=header.map(keyName);cookieTable=keys.includes('name')&&keys.includes('value')&&keys.some(key=>['domain','host','host_key'].includes(key));if(cookieTable)warnings.push('Browser cookie table: only cookie values are eligible for opt-in detection.');continue}
     if(row.length!==header.length){if(warnings.length<10)warnings.push('A row with a different cell count than the header was skipped.');continue}
-    for(let i=0;i<row.length;i++){const key=header[i]||'';if(!sensitive(key)&&(!ignoredKey(key)||fieldKind(key)))yield {...row[i],key,path:key}}
+    for(let i=0;i<row.length;i++){const key=header[i]||'',kind=cookieTable?(keyName(key)==='value'?'cookie':null):credentialKind(key);if(cookieTable&&!kind)continue;if(kind||!sensitive(key)&&(!ignoredKey(key)||fieldKind(key)))yield {...row[i],key,kind,path:key}}
    }
   }catch(e){warnings.push(`Delimited text could not be fully parsed (${e.message}).`)}return;
  }
@@ -108,8 +120,8 @@ function birthDate(value){
 }
 function labeledValue(kind,value){
  if(placeholder(value)||kind!=='discord'&&randomToken(value)||value.length>180)return null;
- if(['name','firstName','lastName'].includes(kind))return naturalName(value,kind!=='name')?{value,confidence:kind==='name'?87:82,reason:'Explicit name field and plausible word structure; identity unverified'}:null;
- if(kind==='username')return /^[\p{L}\p{N}_.-]{2,40}$/u.test(value)&&/\p{L}/u.test(value)&&!randomToken(value)?{value,confidence:86,reason:'Explicit username field; token-like values excluded'}:null;
+ if(['name','firstName','lastName'].includes(kind))return naturalName(value,kind!=='name')&&!gibberish(value)?{value,confidence:kind==='name'?87:82,reason:'Explicit name field and plausible word structure; identity unverified'}:null;
+ if(kind==='username'){value=value.replace(/^@/,'');return /^[\p{L}\p{M}\p{N}_.-]{2,40}$/u.test(value)&&/\p{L}/u.test(value)&&!randomToken(value)&&!gibberish(value)?{value,confidence:86,reason:'Explicit username field; token-like and implausible letter sequences excluded'}:null}
  if(kind==='dateOfBirth'){const date=birthDate(value);return date?{value:date,confidence:96,reason:'Explicit birth-date field and valid calendar date; day-first for non-ISO dates'}:null}
  if(kind==='age')return /^\d{1,3}(?:\s*(?:years?(?: old)?|ans?|anni))?$/i.test(value)&&parseInt(value)<=125?{value:String(parseInt(value)),confidence:85,reason:'Explicit age field and plausible range'}:null;
  if(kind==='discord')return /^\d{17,20}$/.test(value)?{value,confidence:85,reason:'Discord field and plausible ID length; account unverified'}:null;
@@ -143,15 +155,17 @@ function sourceOffset(segment,index){
 }
 function scanDetailed(text,filename,options={}){
  const limit=Math.max(0,Math.min(10000,Math.trunc(Number(options.limit??300))||0));
- const enabled=new Set(Array.isArray(options.kinds)?options.kinds.filter(k=>kindsList.includes(k)):kindsList);
+ const enabled=new Set(Array.isArray(options.kinds)?options.kinds.filter(k=>kindsList.includes(k)):kindsList.filter(kind=>!['token','cookie','password'].includes(kind)));
  const needle=String(options.query||'').normalize('NFKC').toLocaleLowerCase().trim().slice(0,200),minimum=Math.max(0,Math.min(100,Number(options.minConfidence)||0));
  const hits=[],seen=new Map(),warnings=[],locate=lineIndex(text);let truncated=false;
  if(!limit||!enabled.size)return {hits,warnings,truncated};
- if(filename.split(/[\\/]/).some(part=>sensitive(part.replace(/\.[^.]+$/,''))))return {hits,warnings:['Credential or browser-storage file excluded.'],truncated};
+ const credentialParts=filename.split(/[\\/]/).map(part=>part.trim().replace(/\.[^.]+$/,'')).filter(sensitive);
+ const fileKind=credentialParts.map(credentialKind).find(Boolean);
+ if(credentialParts.length&&(!fileKind||!enabled.has(fileKind)||credentialParts.some(part=>!credentialKind(part))))return {hits,warnings:['Credential or browser-storage file excluded.'],truncated};
  function add(kind,result,segment,index){
   if(!result||result.confidence<minimum||needle&&!result.value.normalize('NFKC').toLocaleLowerCase().includes(needle))return;
   const location={file:filename,...locate(sourceOffset(segment,index)),path:segment.path||''};
-  const canonical=kind==='phone'?result.value.replace(/\D/g,''):result.value.normalize('NFKC').toLocaleLowerCase(),key=kind+':'+canonical;
+  const canonical=['token','cookie','password'].includes(kind)?result.value:kind==='phone'?result.value.replace(/\D/g,''):result.value.normalize('NFKC').toLocaleLowerCase(),key=kind+':'+canonical;
   if(seen.has(key)){const hit=seen.get(key);hit.occurrences++;if(hit.sources.length<5)hit.sources.push(location);if(result.confidence>hit.confidence){hit.confidence=result.confidence;hit.reason=result.reason}return}
   if(hits.length>=limit){truncated=true;return}
   const hit={kind,...result,...location,occurrences:1,sources:[location]};hits.push(hit);seen.set(key,hit);
@@ -159,6 +173,9 @@ function scanDetailed(text,filename,options={}){
  for(const segment of segments(text,filename,warnings)){
   const value=String(segment.value),explicit=fieldKind(segment.key),trimmed=value.trim(),leading=value.length-value.trimStart().length;
   if(!trimmed||placeholder(trimmed))continue;
+  const credential=segment.kind||fileKind;
+  if(fileKind==='password'&&!segment.kind&&segment.key)continue;
+  if(credential){const extracted=credential==='password'?value:trimmed;if(enabled.has(credential)&&extracted.length<=8192)add(credential,{value:extracted,confidence:90,reason:'Explicit credential field or file context; validity unverified'},segment,credential==='password'?0:leading);continue}
   const urlRanges=[...value.matchAll(genericRules.url)].map(match=>[match.index,match.index+match[0].length]);
   if(explicit&&enabled.has(explicit))add(explicit,labeledValue(explicit,trimmed),segment,leading);
   for(const [kind,rx] of Object.entries(genericRules)){

@@ -69,13 +69,15 @@ test('query routing keeps structured selectors out of unrelated providers',()=>{
  assert.throws(()=>queryInfo('x\nCookie: secret'),/search term/);assert.throws(()=>queryInfo('a'.repeat(257)),/256/);
 });
 
-test('cache saves quota, keys isolate caches and provider cooldowns never retry automatically',async()=>{
+test('repeated searches fetch fresh results and provider cooldowns never retry automatically',async()=>{
  let clock=0,calls=0;const api=createFreeProviders({now:()=>clock,request:async()=>{calls++;return json(fixtures.virustotal[2])}});
  const payload={provider:'virustotal',query:'example.com'};
- await api.search(payload,'key1');assert.equal((await api.search(payload,'key1')).meta.cached,true);assert.equal(calls,1);
+ await api.search(payload,'key1');
+ await assert.rejects(api.search(payload,'key1'),/retry in 15 seconds/);assert.equal(calls,1);
  await assert.rejects(api.search({...payload,query:'other.com'},'key1'),/retry in 15 seconds/);
  await assert.rejects(api.search(payload,'key2'),/rate limit/);clock=15000;await api.search(payload,'key2');assert.equal(calls,2);
- clock=320000;await api.search(payload,'key1');assert.equal(calls,3);
+ clock=30000;const fresh=await api.search(payload,'key1');assert.equal(calls,3);assert.equal(fresh.meta.cached,undefined);
+ assert.equal(fresh.meta.observedAt,new Date(clock).toISOString());
 });
 
 test('missing credentials and incompatible selectors never issue network requests',async()=>{

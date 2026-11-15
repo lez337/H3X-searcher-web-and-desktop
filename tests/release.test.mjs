@@ -18,3 +18,17 @@ test('release dry run builds before committing and atomically pushing its matchi
   assert.match(result.stdout,/git tag -a v999\.0\.0/);
   assert.match(result.stdout,/git push --atomic origin main refs\/tags\/v999\.0\.0/);
 });
+
+test('release defaults to the next patch version and matching tag',()=>{
+  const {version:current}=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));
+  const [major,minor,patch]=current.split('.').map(Number);
+  const version=`${major}.${minor}.${patch+1}`;
+  const result=invoke('--dry-run');
+  assert.equal(result.status,0,result.stderr);
+  assert.ok(result.stdout.includes(`version ${version} --no-git-tag-version`));
+  assert.ok(result.stdout.includes(`git commit -m Release v${version}`));
+  assert.ok(result.stdout.includes(`git tag -a v${version}`));
+  assert.ok(result.stdout.includes(`git push --atomic origin main refs/tags/v${version}`));
+  assert.equal(invoke(version,'extra','--dry-run').status,1);
+  assert.equal(JSON.parse(readFileSync(new URL('../package.json',import.meta.url))).version,current);
+});

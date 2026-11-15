@@ -64,11 +64,11 @@ GitHub Actions runs tests and production build checks, then builds both Windows 
 From Windows, with Node.js, npm, Git, installed dependencies (`npm ci`), and GitHub push access configured, release a new version:
 
 ```powershell
-npm run release -- 0.3.3 --dry-run
-npm run release -- 0.3.3
+npm run release -- --dry-run
+npm run release
 ```
 
-Choose a version newer than `package.json`. The dry run prints the commands without changing files or contacting GitHub. The release command requires `main` and the configured repository as `origin`. It checks for an existing tag and remote changes, updates the package and lockfile versions, runs tests/build/deploy dry run, builds both EXEs and checksums in `release/`, then **commits all non-ignored changes** and pushes `main` with the matching tag atomically. Review your changes before running it. A failed check stops publication; local version edits and build files remain for correction. GitHub Actions publishes the release after its checks pass; follow the Actions URL printed by the script. No GitHub CLI or token in source files is needed.
+The version defaults to the next patch after `package.json` (for example, `0.3.6` → `0.3.7`), with a matching `v0.3.7` tag. To choose a specific newer version, use `npm run release -- 0.4.0`. The dry run prints the commands without changing files or contacting GitHub. The release command requires `main` and the configured repository as `origin`. It checks for an existing tag and remote changes, updates the package and lockfile versions, runs tests/build/deploy dry run, builds both EXEs and checksums in `release/`, then **commits all non-ignored changes** and pushes `main` with the matching tag atomically. Review your changes before running it. A failed check stops publication; local version edits and build files remain for correction. GitHub Actions publishes the release after its checks pass; follow the Actions URL printed by the script. No GitHub CLI or token in source files is needed.
 
 To build both installers locally without committing or publishing:
 

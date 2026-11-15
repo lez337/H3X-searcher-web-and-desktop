@@ -31,10 +31,10 @@ test('exclusions apply to canonical fields, extra categories and every supportin
  assert.equal(saved.email,'');assert.ok(saved.customCategories.every(c=>!['City','occupation'].includes(c.label)));
  assert.ok(saved.evidence.every(e=>!('email' in e.fields)&&!('city' in e.fields)&&!('occupation' in e.fields)&&!('cookie' in e.fields)));
 });
-test('conflicting values survive as alternatives without overwriting an existing person',async()=>{
- const [search]=groupPeople([{id:'c',source:'A',fields:{name:'Mazure Emilie',email:'one@example.org'}},{id:'d',source:'B',fields:{name:'Mazure Emily',email:'one@example.org'}}]);
- const saved=await exportSearchPerson(search,make(),service,[],'query');
- assert.ok(saved.customCategories.some(c=>c.label==='Alternative Full name'&&c.value.includes('Mazure Emilie')&&c.value.includes('Mazure Emily')));
+test('different names sharing an email export as separate people',async()=>{
+ const searches=groupPeople([{id:'c',source:'A',fields:{name:'Mazure Emilie',email:'one@example.org'}},{id:'d',source:'B',fields:{name:'Mazure Emily',email:'one@example.org'}}]);
+ const saved=await Promise.all(searches.map(search=>exportSearchPerson(search,make(),service,[],'query')));
+ assert.equal(saved.length,2);assert.deepEqual(saved.map(person=>person.name),['Mazure Emilie','Mazure Emily']);assert.ok(saved.every(person=>person.evidence.length===1));
 });
 test('a failed source preparation rejects the entire grouped export',async()=>{
  let calls=0;await assert.rejects(exportSearchPerson(person,make(),async payload=>{if(++calls===2)throw Error('offline');return service(payload)},[],'query'),/offline/);
